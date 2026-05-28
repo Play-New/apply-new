@@ -69,6 +69,64 @@ Alternative paths if you don't have Claude Code:
 - `ANTHROPIC_API_KEY=… apply-new generate` automates the narrative via the Claude API.
 - Manual: `prepare` → write `narrative.json` by hand → `finalize`.
 
+## How we build the cognitive profile
+
+We didn't want to build "AI judges humans". The profile is a **portrait, not a grade** — useful for the candidate (to see how they actually work) as much as for whoever reads it (to start a real conversation).
+
+### What we measure, and how
+
+**Project types** — descriptive tags computed from the files you actually touched:
+
+| Tag | When it appears |
+|---|---|
+| `product-build` | sustained work on a single product (>200 mutations over >14 days) |
+| `audit-research` | heavy on reading and analysis, light on changes (Research:Mutation > 10) |
+| `agent-tooling` | skill/command/hook files for AI agents |
+| `data-migration` | schema, SQL, or migration files involved |
+| `static-site` | HTML-heavy mutations |
+| `ai-platform` | API routes for chat/agent/connectors |
+| `feature-work`, `testing`, `quality-gating`, `orchestrated`, `design-research` | self-explanatory |
+
+**Cognitive tags** — derived from thresholds on objective signals in your logs:
+
+| Tag | Threshold |
+|---|---|
+| `research-first` | average Research:Mutation ratio above 2 |
+| `decomposer` | median prompt length ≥ 25 words |
+| `orchestrator` | Task/Agent delegations total ≥ 15 |
+| `verification-heavy` | checks (tsc/eslint/test/build) run in at least half the projects |
+| `risk-calibrated` | revert/commit ratio < 10% on 20+ commits |
+
+These are descriptors, not grades. There's no "better" cognitive tag — they're meant to **start a conversation**, not to compare you to anyone else.
+
+**Cognitive narrative** — 4–6 sentences written by *your* Claude instance, constrained on six dimensions: **decomposition · verification · error handling · orchestration · risk · calibrated trust in AI**. Hard rules in the prompt: no proper names, evidence-based only, no hyperbole.
+
+The reference we leaned on (the only one): [claude-session-analyzer](https://github.com/lucemia/claude-session-analyzer) by lucemia, for the Research:Mutation idea and the thinking-signature length as a depth proxy.
+
+### What this is not
+
+- **Not a personality test.** No Big Five, no MBTI, no DISC. Logs are not psychology.
+- **Not automatic scoring or ranking.** No "fit score", no leaderboard. A human reads each profile.
+- **Not a performance prediction.** Past patterns don't determine future outcomes.
+- **Not a comparison between candidates.** Each profile stands on its own.
+
+### What this does not replace
+
+A profile is a starting point. It does not replace:
+
+- **A real conversation.** A 30-minute interview tells you more than any log can.
+- **A real task.** We like a 45–60 minute live session in our repo with Claude Code — see how you actually think out loud, together.
+- **A real meeting.** Humans deciding about humans.
+
+### Limits, owned
+
+- **Sample bias.** You decide which projects we see. The tool can't tell what's missing.
+- **Tool bias.** Solo-work logs mostly show execution. Leadership, mentoring, pair-working with humans — invisible here.
+- **Threshold bias.** Our cutoffs are empirical, not validated against a large population. We will refine them as more applications come in.
+- **LLM bias.** The narrative is written by a model that has its own patterns. The prompt constrains it but does not make it neutral.
+
+If you spot a way to make this less biased, less grade-shaped, more useful: [open an issue](https://github.com/Play-New/apply-new/issues). We'd rather get this right than ship something clever.
+
 ## Tests
 
 ```
