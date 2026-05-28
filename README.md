@@ -1,15 +1,15 @@
-# apply-new
+# Apply New
 
-**A new way to apply for a job at Play New.**
+> `apply-new` — a new way to apply for a job at Play New.
 
-We don't read CVs. A CV tells us what you did; we want to see *how* you think. If you work with AI tools every day, the way you reason, decompose, verify, and recover from mistakes is already written down — it's sitting in your Claude Code logs. This tool turns those logs into a short, anonymized work profile, and lets you decide what to do with it.
+We don't read CVs. A CV tells us what you did; we want to see *how* you think. If you work with AI tools every day, the way you reason, decompose, verify, and recover from mistakes is already written down — it's sitting in your Claude Code logs. Apply New turns those logs into a short, anonymized work profile, and lets you decide what to do with it.
 
 Two things matter:
 
 - **Your data stays yours.** Everything runs on your laptop. Names of clients, products, people are stripped out. You see the profile before anyone else does, and you can keep it just for yourself.
 - **You write it, your AI helps.** The qualitative parts use *your* Claude Code subscription — no API key, no extra cost. The profile sounds like you.
 
-> Today the tool reads **Claude Code** logs. Codex CLI, Gemini CLI, and ChatGPT / Claude.ai exports are on the roadmap — coming soon.
+> Today Apply New reads **Claude Code** logs. Codex CLI, Gemini CLI, and ChatGPT / Claude.ai exports are on the roadmap — coming soon.
 
 ## How to use it
 
