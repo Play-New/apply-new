@@ -9,6 +9,8 @@ Two things matter:
 - **Your data stays yours.** Everything runs on your laptop. Names of clients, products, people are stripped out. You see the profile before anyone else does, and you can keep it just for yourself.
 - **You write it, your AI helps.** The qualitative parts use *your* Claude Code subscription — no API key, no extra cost. The profile sounds like you.
 
+> Today the tool reads **Claude Code** logs. Codex CLI, Gemini CLI, and ChatGPT / Claude.ai exports are on the roadmap — coming soon.
+
 ## How to use it
 
 You need [Claude Code](https://claude.com/claude-code) installed and a Claude subscription (Pro, Max, or Enterprise).
@@ -115,7 +117,6 @@ The reference we leaned on (the only one): [claude-session-analyzer](https://git
 A profile is a starting point. It does not replace:
 
 - **A real conversation.** A 30-minute interview tells you more than any log can.
-- **A real task.** We like a 45–60 minute live session in our repo with Claude Code — see how you actually think out loud, together.
 - **A real meeting.** Humans deciding about humans.
 
 ### Limits, owned
