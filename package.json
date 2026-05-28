@@ -1,0 +1,21 @@
+{
+  "name": "apply-new",
+  "version": "0.0.1",
+  "description": "Apply New: build a tamper-evident, PII-redacted work profile from your Claude Code logs.",
+  "type": "module",
+  "bin": {
+    "apply-new": "bin/apply-new.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Play-New/apply-new",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Play-New/apply-new.git"
+  }
+}

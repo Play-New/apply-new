@@ -1,0 +1,13 @@
+node_modules/
+*.bundle.json
+digest.json
+scratch-*.mjs
+candidate.json
+profile.md
+narrative*.json
+.DS_Store
+
+# Local Claude Code state (per-candidate); the slash command in
+# .claude/commands/apply-new.md stays tracked.
+.claude/settings.local.json
+.claude/projects/
