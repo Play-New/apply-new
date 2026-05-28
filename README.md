@@ -146,10 +146,6 @@ Full policy in [PRIVACY.md](PRIVACY.md). If you'd rather not use the tool, reach
 npm test
 ```
 
-## Acknowledgments
-
-The Research:Mutation ratio idea is borrowed from [claude-session-analyzer](https://github.com/lucemia/claude-session-analyzer) by lucemia.
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
