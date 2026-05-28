@@ -65,11 +65,15 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
    ```
    This writes `candidate.json` (for agents) and `profile.md` (for humans).
 
-6. **Show `profile.md`** to the candidate and ask, in this order:
-   - **Are the representative projects right?** They can swap one with another from the inventory section.
-   - **Want to attach an artifact** to any project? (deploy URL, repo URL, PR link, screenshot path). The candidate decides the confidentiality boundary — never push to attach.
-   - **Review the "new vocabulary" list in Trajectory.** Proper-noun filtering is intentionally NOT automatic (a researcher or framework name is signal; a client name isn't). Read the list aloud with them and offer to remove any word they consider sensitive. Edit `candidate.json` and re-render `profile.md` if needed.
-   - **Anything to refine in the narrative?** If yes, rewrite `narrative.json` (same hard rules) and run finalize again.
+6. **Show `profile.md`** to the candidate, then ask the four review questions below **ONE AT A TIME, in order**. Wait for an answer before moving to the next. **Do NOT enumerate them in a single block** — the goal is a conversation, not a survey.
+
+   **Question 1 — Representative projects.** State the four that were auto-selected with their repoLabel ("flatmates-platform — creator intelligence platform", etc.) and ask if any should be swapped for one from the inventory. After their answer, edit `candidate.json` if needed.
+
+   **Question 2 — Artifacts (optional).** Ask if they want to attach anything to a project: a deploy URL, repo URL, PR link, or screenshot path. They decide the confidentiality boundary — never push them to attach.
+
+   **Question 3 — New vocabulary review.** Read the list of words you picked for `vocabulary_adopted` aloud with them. Flag any borderline tokens (researcher / framework / library names are signal; client / colleague / brand names are not — distinguishing automatically is hard so you mention them, not pre-decide). Ask if there's anything they'd rather not surface. Edit `candidate.json` and re-render `profile.md` if needed.
+
+   **Question 4 — Narrative refinements.** Ask if anything in the summary, cognitive narrative, trajectory narrative, or per-project text reads off. If yes, rewrite `narrative.json` (same hard rules) and run finalize again.
 
 7. **Clean up.** Delete `narrative-input.json` once the candidate is satisfied (it contains local repo context with real names). Keep `narrative.json`, `candidate.json`, `profile.md`.
 
