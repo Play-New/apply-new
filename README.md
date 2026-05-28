@@ -35,23 +35,27 @@ You'll end up with two files:
 ## Submit when (and if) you want
 
 ```
-apply-new submit --yes
+node bin/apply-new.mjs submit --yes
 ```
 
 Shows what's about to be sent, asks for confirmation, sends it to Play New. You can also keep the profile just for yourself and never run this.
 
+> Prefer the short form `apply-new submit --yes`? Run `npm link` once from the repo and the binary lands on your PATH. Both forms are equivalent.
+
 ## Commands
+
+All commands work as `node bin/apply-new.mjs <sub>` (no setup) or as `apply-new <sub>` (after one-off `npm link`).
 
 | Command | What it does |
 |---|---|
-| `apply-new generate` *(default)* | full profile, locally |
-| `apply-new prepare` | only `narrative-input.json` (if you want to write the narrative manually) |
-| `apply-new finalize --narrative-file narrative.json` | finalize after `prepare` |
-| `apply-new submit --yes` | send to Play New |
+| `generate` *(default)* | full profile, locally |
+| `prepare` | only `narrative-input.json` (if you want to write the narrative manually) |
+| `finalize --narrative-file narrative.json` | finalize after `prepare` |
+| `submit --yes` | send to Play New |
 
 Common flags: `--name`, `--email`, `--city`, `--status`, `--top N`, `--root <dir>`.
 
-If you don't have Claude Code, you can also: `ANTHROPIC_API_KEY=… apply-new generate` (automates the narrative via the Claude API), or `prepare` → write `narrative.json` by hand → `finalize`.
+If you don't have Claude Code, you can also: `ANTHROPIC_API_KEY=… node bin/apply-new.mjs generate` (automates the narrative via the Claude API), or `prepare` → write `narrative.json` by hand → `finalize`.
 
 ## What we collect, what we don't
 

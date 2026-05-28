@@ -73,10 +73,12 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
 
 7. **Clean up.** Delete `narrative-input.json` once the candidate is satisfied (it contains local repo context with real names). Keep `narrative.json`, `candidate.json`, `profile.md`.
 
-8. **Mention the groundedness score.** The `assembleProfile` step writes `profile.groundedness.score` — show it to the candidate, e.g. "Groundedness: 92% of the verifiable anchors in the prose match your logs." If anomalies are interesting, glance at them (they're surfaced again by `apply-new submit`).
+8. **Mention the groundedness score.** The `assembleProfile` step writes `profile.groundedness.score` — show it to the candidate, e.g. "Groundedness: 92% of the verifiable anchors in the prose match your logs." If anomalies are interesting, glance at them (they're surfaced again at submit).
 
 9. **Tell them how to submit, when ready.** Do NOT submit yourself. Say:
-   > "When you're ready to submit it to Play New, close this session and run `apply-new submit --yes` from the terminal. The profile stays on your machine until you send it. You can also keep it just for yourself."
+   > "When you're ready to submit it to Play New, close this session and run `node bin/apply-new.mjs submit --yes` from this folder. The profile stays on your machine until you send it. You can also keep it just for yourself."
+
+   (If the candidate prefers the shorter `apply-new submit --yes`, they can `npm link` once from the repo — but `node bin/apply-new.mjs` works without any setup.)
 
 ## Notes
 
