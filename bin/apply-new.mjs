@@ -38,6 +38,7 @@ import { buildContact } from "../src/contact.mjs";
 import { submitProfile } from "../src/submit.mjs";
 import { buildTrajectory } from "../src/trajectory.mjs";
 import { assessGroundedness } from "../src/groundedness.mjs";
+import { computeAiRelationship } from "../src/ai-relationship.mjs";
 
 const SUB_COMMANDS = new Set(["generate", "prepare", "finalize", "submit"]);
 
@@ -75,7 +76,8 @@ async function loadProfileInputs(out) {
 
   const enrichments = selected.map((p) => enrichRepo(p.cwdRaw));
   const trajectory = buildTrajectory(parsed);
-  return { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, out };
+  const aiRelationship = computeAiRelationship(parsed);
+  return { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, out };
 }
 
 function resolveContact() {
@@ -100,7 +102,7 @@ function writeProfile(out, profile) {
 async function cmdGenerate() {
   const out = process.cwd();
   console.log(`\napply-new generate\n`);
-  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory } = await loadProfileInputs(out);
+  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship } = await loadProfileInputs(out);
   const { contact, errors } = resolveContact();
   if (errors.length) {
     console.error("\nMissing contact fields:");
@@ -113,6 +115,7 @@ async function cmdGenerate() {
   const { narrative, input } = await generateNarrative(selected, enrichments, {
     overrideFile: narrativeFile,
     trajectory,
+    aiRelationship,
     compactionSummaries: parsed.compactionSummaries,
   });
   if (!narrative) {
@@ -124,25 +127,28 @@ async function cmdGenerate() {
   }
 
   console.log(`[5/5] Assembling and saving ...\n`);
-  const draft = assembleProfile({
-    contact, projects, narrative, fingerprint, forensics, trajectory,
+  writeProfile(out, assembleWithGroundedness({
+    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship,
     manifestHash: fingerprint.manifest.bundleHash,
-  });
+  }));
+}
+
+// Assemble + compute groundedness on the assembled draft + re-assemble with
+// the score embedded. Centralised so generate and finalize share it.
+function assembleWithGroundedness(args) {
+  const draft = assembleProfile(args);
   const groundedness = assessGroundedness(draft);
-  const full = assembleProfile({
-    contact, projects, narrative, fingerprint, forensics, trajectory, groundedness,
-    manifestHash: fingerprint.manifest.bundleHash,
-  });
-  writeProfile(out, full);
+  return assembleProfile({ ...args, groundedness });
 }
 
 async function cmdPrepare() {
   const out = process.cwd();
   console.log(`\napply-new prepare\n`);
-  const { parsed, selected, enrichments, trajectory } = await loadProfileInputs(out);
+  const { parsed, selected, enrichments, trajectory, aiRelationship } = await loadProfileInputs(out);
   const { input } = await generateNarrative(selected, enrichments, {
     overrideFile: null,
     trajectory,
+    aiRelationship,
     compactionSummaries: parsed.compactionSummaries,
   });
   writeFileSync(join(out, "narrative-input.json"), JSON.stringify(input, null, 2));
@@ -158,7 +164,7 @@ async function cmdFinalize() {
     console.error(`Missing ${narrativeFile}. Run apply-new prepare first, then write narrative.json.`);
     process.exit(2);
   }
-  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory } = await loadProfileInputs(out);
+  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship } = await loadProfileInputs(out);
   const { contact, errors } = resolveContact();
   if (errors.length) {
     console.error("\nMissing contact fields:");
@@ -168,15 +174,11 @@ async function cmdFinalize() {
   const { narrative } = await generateNarrative(selected, enrichments, {
     overrideFile: narrativeFile,
     trajectory,
+    aiRelationship,
     compactionSummaries: parsed.compactionSummaries,
   });
-  const draft = assembleProfile({
-    contact, projects, narrative, fingerprint, forensics, trajectory,
-    manifestHash: fingerprint.manifest.bundleHash,
-  });
-  const groundedness = assessGroundedness(draft);
-  writeProfile(out, assembleProfile({
-    contact, projects, narrative, fingerprint, forensics, trajectory, groundedness,
+  writeProfile(out, assembleWithGroundedness({
+    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship,
     manifestHash: fingerprint.manifest.bundleHash,
   }));
 }

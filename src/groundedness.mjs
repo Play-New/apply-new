@@ -14,11 +14,24 @@
 // Designed to be transparent: every flagged anchor is shown to the candidate
 // before submission so they can re-generate or edit if something is off.
 
+// Stack tokens AND AI-tooling vocabulary. A narrative that says "Claude" or
+// "SDK" or "MCP" is referring to general AI/dev primitives that are part of
+// the trajectory even when not listed in a project's `tech` array. We treat
+// these as inherently grounded — the candidate is using them right now to
+// generate this profile.
 const TECH_NAMES = [
+  // Web / framework stack
   "Supabase","Postgres","Inngest","Playwright","Tailwind","shadcn","Zod","Prisma","Next.js","React",
-  "Stripe","Drizzle","Brevo","Resend","Vercel","TypeScript","Python","Node","Anthropic","Claude",
-  "OpenAI","Vitest","Jest","ESLint","MCP","SDK",
+  "Stripe","Drizzle","Brevo","Resend","Vercel","TypeScript","Python","Node","Vitest","Jest","ESLint",
 ];
+
+// AI-tooling vocabulary — always considered grounded, since the candidate is
+// (by definition) using these tools to participate in Apply New.
+const AI_TOOLING = new Set([
+  "claude","claude code","claude.ai","anthropic","openai","gpt","gemini","codex",
+  "sdk","api","mcp","agent","agents","subagent","sub-agent","skill","skills",
+  "llm","llms","prompt","tool use","tool-use","reasoning","thinking","context window",
+]);
 
 const TYPE_TAGS = [
   "product-build","audit-research","agent-tooling","static-site","ai-platform",
@@ -51,9 +64,15 @@ function extractAnchors(text) {
   }
 
   // Technology names — case-insensitive but anchored on word boundary.
+  // AI-tooling words are pre-grounded (a candidate using Apply New is using
+  // Claude / an SDK / an MCP server / agents by definition).
   for (const t of TECH_NAMES) {
     const re = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
     if (re.test(text)) anchors.push({ kind: "tech", value: t.toLowerCase(), raw: t });
+  }
+  for (const t of AI_TOOLING) {
+    const re = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    if (re.test(text)) anchors.push({ kind: "ai-tooling", value: t, raw: t });
   }
 
   // Type tags & cognitive tags, only if they appear in prose form.
@@ -97,7 +116,7 @@ function collectSupportPool(profile) {
     addNumber(p?.metrics?.delegation);
     addText(p?.span?.from);
     addText(p?.span?.to);
-    for (const t of p.tech ?? []) tech.add(t.toLowerCase());
+    for (const t of p.tech ?? []) for (const w of splitTech(t)) tech.add(w);
     for (const t of p.type ?? []) tags.add(t);
   }
   for (const o of profile?.otherProjects ?? []) {
@@ -107,7 +126,7 @@ function collectSupportPool(profile) {
     for (const t of o.type ?? []) tags.add(t);
   }
 
-  for (const t of profile?.stackAdopted ?? []) tech.add(t.toLowerCase());
+  for (const t of profile?.stackAdopted ?? []) for (const w of splitTech(t)) tech.add(w);
   for (const t of profile?.cognitive?.tags ?? []) tags.add(t);
 
   // Trajectory numbers
@@ -118,6 +137,16 @@ function collectSupportPool(profile) {
   for (const pr of profile?.trajectory?.principlesAdopted ?? []) addText(pr.when);
 
   return { numbers, periods, tech, tags };
+}
+
+// "Supabase/Postgres" or "Playwright (E2E)" should make both "supabase",
+// "postgres", "playwright" individually grounded.
+function splitTech(label) {
+  return String(label)
+    .toLowerCase()
+    .split(/[\s/(),]+/)
+    .map((s) => s.replace(/[^a-z.+-]/g, ""))
+    .filter((s) => s.length >= 3);
 }
 
 // Numbers in prose match if they equal a structured number or are within 5%
@@ -165,6 +194,7 @@ export function assessGroundedness(profile) {
       else if (a.kind === "period") ok = pool.periods.has(a.value);
       else if (a.kind === "tech") ok = pool.tech.has(a.value);
       else if (a.kind === "tag") ok = pool.tags.has(a.value);
+      else if (a.kind === "ai-tooling") ok = true; // pre-grounded by definition
       if (ok) supported++;
       else anomalies.push({ where: f.where, anchor: a.raw, kind: a.kind });
     }

@@ -192,7 +192,7 @@ function computeNewVocabulary(parsed) {
   const earlyTs = [];
   // First pass to find median session timestamp = "midpoint"
   for (const s of parsed.sessions) if (s.firstTs && ms(s.firstTs)) earlyTs.push(ms(s.firstTs));
-  if (earlyTs.length < 6) return [];
+  if (earlyTs.length < 4) return [];
   earlyTs.sort((a, b) => a - b);
   const mid = earlyTs[Math.floor(earlyTs.length / 2)];
 

@@ -25,10 +25,16 @@ You also receive a TRAJECTORY block (what changed over the window) with: behavio
 
 For the trajectory narrative, focus on STRATEGIC AND CULTURAL change, NOT on stack adopted (the stack is rendered separately). Think: how their way of working evolved, what they came to value, the mental models they took on. Cite the numbers when they back a claim. Stay evidence-based.
 
+You also receive an AI_RELATIONSHIP block with a numeric split between two poles:
+  - executor-leaning: treats the model like a careful junior, with long structured prompts, file paths, numbered steps, acceptance criteria.
+  - symbient-leaning: thinks out loud with the model, short conversational turns, open questions, lets the model push back.
+And a few example prompts for each pole. Write 2-3 sentences in ai_relationship.narrative about WHEN they pick one mode vs the other (e.g. "structured spec on data and security work; conversational on UI exploration"). Stay evidence-based, no labels, no judgement.
+
 Reply ONLY with a valid JSON in this shape:
 {
   "summary": "2-3 sentences: how this person works with AI",
   "cognitive": { "narrative": "4-6 sentences on the cognitive profile: decomposition, verification, error handling, orchestration, risk, calibrated trust in AI" },
+  "ai_relationship": { "narrative": "2-3 sentences on when they pick executor vs symbient mode" },
   "trajectory": {
     "narrative": "3-5 sentences on strategic/cultural shift over the window. Cite the data. NO stack names here.",
     "principles_adopted": [
@@ -38,7 +44,7 @@ Reply ONLY with a valid JSON in this shape:
   "projects": [ { "id": "p1", "domain": "abstract domain", "did": "2-3 sentences on what they did", "why_representative": "1 sentence" } ]
 }`;
 
-function narrativeInput(selected, enrichments, trajectory, compactionSummaries) {
+function narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship) {
   return {
     projects: selected.map((p, i) => {
       const e = enrichments[i] || {};
@@ -80,6 +86,15 @@ function narrativeInput(selected, enrichments, trajectory, compactionSummaries) 
     // Dense self-portraits of how earlier work went, written by the model
     // inside Claude Code as compaction summaries.
     compactionSummaries: (compactionSummaries || []).slice(-6),
+    aiRelationship: aiRelationship
+      ? {
+          mode: aiRelationship.mode,
+          executor: aiRelationship.executor,
+          symbient: aiRelationship.symbient,
+          sampledPrompts: aiRelationship.sampledPrompts,
+          examples: aiRelationship.examples,
+        }
+      : null,
   };
 }
 
@@ -100,11 +115,39 @@ async function callAnthropic(input, key) {
   return JSON.parse(text.replace(/^```json\s*|\s*```$/g, "").trim());
 }
 
+// Light validation of the narrative shape. We don't want a malformed model
+// reply to silently sail into the profile — that's the worst kind of bug.
+// Throws with a precise pointer to the bad field. Tolerates extra keys.
+function validateNarrative(n, ctx) {
+  const where = (p) => `narrative${ctx ? ` (${ctx})` : ""}: ${p}`;
+  const str = (v) => typeof v === "string" && v.trim().length > 0;
+  if (!n || typeof n !== "object") throw new Error(where("not an object"));
+  if (!str(n.summary)) throw new Error(where("missing summary"));
+  if (!n.cognitive || typeof n.cognitive !== "object") throw new Error(where("missing cognitive"));
+  if (!str(n.cognitive.narrative)) throw new Error(where("missing cognitive.narrative"));
+  // trajectory is optional in older shapes; if present, it must be well-formed.
+  if (n.trajectory != null) {
+    if (typeof n.trajectory !== "object") throw new Error(where("trajectory not an object"));
+    if (n.trajectory.narrative != null && !str(n.trajectory.narrative)) throw new Error(where("trajectory.narrative empty"));
+    if (n.trajectory.principles_adopted != null && !Array.isArray(n.trajectory.principles_adopted)) {
+      throw new Error(where("trajectory.principles_adopted not an array"));
+    }
+  }
+  if (!Array.isArray(n.projects)) throw new Error(where("projects not an array"));
+  for (const [i, p] of n.projects.entries()) {
+    if (!p || typeof p !== "object") throw new Error(where(`projects[${i}] not an object`));
+    if (!str(p.id)) throw new Error(where(`projects[${i}].id missing`));
+    if (!str(p.domain)) throw new Error(where(`projects[${i}].domain missing`));
+    if (!str(p.did)) throw new Error(where(`projects[${i}].did missing`));
+  }
+  return n;
+}
+
 // Returns { narrative, input }. narrative is null if no key and no override.
-export async function generateNarrative(selected, enrichments, { overrideFile, trajectory, compactionSummaries } = {}) {
-  const input = narrativeInput(selected, enrichments, trajectory, compactionSummaries);
+export async function generateNarrative(selected, enrichments, { overrideFile, trajectory, compactionSummaries, aiRelationship } = {}) {
+  const input = narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship);
   const key = process.env.ANTHROPIC_API_KEY;
-  if (key) return { narrative: await callAnthropic(input, key), input };
-  if (overrideFile) return { narrative: JSON.parse(readFileSync(overrideFile, "utf8")), input };
+  if (key) return { narrative: validateNarrative(await callAnthropic(input, key), "API"), input };
+  if (overrideFile) return { narrative: validateNarrative(JSON.parse(readFileSync(overrideFile, "utf8")), overrideFile), input };
   return { narrative: null, input };
 }

@@ -62,7 +62,7 @@ function cognitiveTags(projects, fingerprint) {
 
 // --- assemble ----------------------------------------------------------------
 
-export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory, groundedness }) {
+export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory, groundedness, aiRelationship }) {
   const froms = projects.map((p) => p.from).filter(Boolean).sort();
   const tos = projects.map((p) => p.to).filter(Boolean).sort();
   const selected = projects.filter((p) => p.selected);
@@ -99,6 +99,14 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
       type: p.type, span: { from: p.from, to: p.to }, sessions: p.sessions, includedBy: "tool:inventory",
     })),
     cognitive: { tags: cognitiveTags(projects, fingerprint), narrative: narrative?.cognitive?.narrative || null },
+    aiRelationship: aiRelationship
+      ? {
+          mode: aiRelationship.mode,
+          executor: aiRelationship.executor,
+          symbient: aiRelationship.symbient,
+          narrative: narrative?.ai_relationship?.narrative || null,
+        }
+      : null,
     trajectory: trajectory
       ? {
           // Deterministic facts (Lot 1).
@@ -154,6 +162,12 @@ export function renderMarkdown(p) {
   L.push(`\n## Cognitive profile`);
   if (p.cognitive.tags.length) L.push(`tags: ${p.cognitive.tags.join(" · ")}`);
   if (p.cognitive.narrative) L.push(p.cognitive.narrative);
+
+  if (p.aiRelationship) {
+    L.push(`\n## How they work with the AI`);
+    L.push(`${p.aiRelationship.executor}% executor · ${p.aiRelationship.symbient}% symbient · ${p.aiRelationship.mode}`);
+    if (p.aiRelationship.narrative) L.push(p.aiRelationship.narrative);
+  }
 
   // Trajectory: what changed strategically over the window. Numbers first, then
   // the LLM narrative, then the principles the candidate codified for themselves.
