@@ -67,7 +67,7 @@ It does **not** contain:
 
 **What we do with it.** A human at Play New reads it and matches you against open projects. We don't pass your data outside Play New, train models on it, or include it in client-facing dashboards.
 
-**Want it gone?** Email `hey@playnew.com` and we delete your application and any attached artifacts. Locally, just remove `profile.md` and `candidate.json` — they're plain files.
+**Want it gone?** Reach us via [playnew.com](https://playnew.com) and we delete your application and any attached artifacts. Locally, just remove `profile.md` and `candidate.json` — they're plain files.
 
 ## How we build the profile
 
@@ -85,7 +85,7 @@ The profile is a **portrait, not a grade** — useful for you (to see how you ac
 | `ai-platform` | API routes for chat / agent / connectors |
 | `feature-work`, `testing`, `quality-gating`, `orchestrated`, `design-research` | self-explanatory |
 
-**Cognitive tags** — derived from thresholds on objective signals:
+**Cognitive tags** — recurring patterns we see in your logs. Each tag has a documented threshold:
 
 | Tag | Threshold |
 |---|---|
@@ -137,10 +137,10 @@ Apply New helps us understand *how you work with AI*, to match you with the righ
 
 - **Legal basis (GDPR Art. 6(1)(a)):** explicit consent. You run `apply-new submit --yes` knowing what is sent.
 - **Retention:** while there's active interest, or up to 12 months. You can ask for earlier deletion at any time.
-- **Your rights:** access, rectification, erasure, portability, objection, restriction — write to `hey@playnew.com`. Your `candidate.json` is already a copy.
+- **Your rights:** access, rectification, erasure, portability, objection, restriction — contact us via [playnew.com](https://playnew.com). Your `candidate.json` is already a copy.
 - **EU AI Act (2024/1689) Annex III §4(a):** systems used to "analyse and filter job applications and evaluate candidates" are classified as high-risk. We treat Apply New as such — transparency (this README + open source), human oversight (no automated decision), disclosure (you're using an AI tool), data governance (logs stay local).
 
-Full policy in [PRIVACY.md](PRIVACY.md). If you'd rather not use the tool, write to `hey@playnew.com` for a no-tool conversation.
+Full policy in [PRIVACY.md](PRIVACY.md). If you'd rather not use the tool, reach us via [playnew.com](https://playnew.com) for a no-tool conversation.
 
 ## Tests
 

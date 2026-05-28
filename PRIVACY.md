@@ -12,7 +12,7 @@ This document explains what we do with the data you choose to send.
 
 **Data controller:** Cosmico Srl — Play New
 Viale Pasubio 5, 20154 Milano, Italy · VAT IT 11186440969
-Contact: `hey@playnew.com`
+Contact: [playnew.com](https://playnew.com)
 
 ## 2. What we collect, with your consent
 
@@ -41,7 +41,7 @@ We **do not**:
 
 ## 4. Legal basis
 
-**Explicit consent** (GDPR Art. 6(1)(a)). You run `apply-new submit --yes` after seeing exactly what is being sent. You can withdraw consent at any time by emailing `hey@playnew.com`.
+**Explicit consent** (GDPR Art. 6(1)(a)). You run `apply-new submit --yes` after seeing exactly what is being sent. You can withdraw consent at any time by reaching us via [playnew.com](https://playnew.com).
 
 ## 5. How long we keep it (retention)
 
@@ -54,7 +54,7 @@ You can ask for **earlier deletion** at any time.
 You have the right to:
 - **Access** the data we hold about you. Your `candidate.json` already is a copy.
 - **Rectification** — fix anything inaccurate. Easiest: re-generate locally and submit again, then ask us to delete the previous one.
-- **Erasure** — be deleted. Write to `hey@playnew.com`.
+- **Erasure** — be deleted. Reach us via [playnew.com](https://playnew.com).
 - **Portability** — receive the data in machine-readable form. Again, `candidate.json`.
 - **Objection / restriction** — pause processing.
 - **Lodge a complaint** with the [Garante per la protezione dei dati personali](https://www.garanteprivacy.it/) (the Italian DPA).
@@ -79,7 +79,7 @@ Under EU Regulation 2024/1689 (the AI Act), Annex III §4(a), AI systems used to
 
 ## 9. A fully manual alternative
 
-If you prefer not to use the tool — for any reason, including unease about the AI generation — write to `hey@playnew.com`. We will arrange a no-tool conversation. You do not lose anything by not using Apply New.
+If you prefer not to use the tool — for any reason, including unease about the AI generation — reach us via [playnew.com](https://playnew.com). We will arrange a no-tool conversation. You do not lose anything by not using Apply New.
 
 ## 10. Changes
 
@@ -87,4 +87,4 @@ We will update this document if we change what the tool does. The previous versi
 
 ---
 
-*If anything here is unclear or you spot a mistake, please [open an issue](https://github.com/Play-New/apply-new/issues) or write to `hey@playnew.com`.*
+*If anything here is unclear or you spot a mistake, please [open an issue](https://github.com/Play-New/apply-new/issues) or reach us via [playnew.com](https://playnew.com).*
