@@ -66,6 +66,20 @@ const STOPWORDS = new Set([
   "che","chi","con","per","tra","fra","una","uno","una","alle","del","dal","dai","dagli","sulle","sui","sul",
   "avere","aver","mettere","dentro","fuori","sopra","tutta","senso","giusto","nulla","niente","forse","probabilmente",
   "molto","poco","spesso","mai","sempre","ovviamente","sicuramente","ovvio","semplice","facile","difficile","meglio","peggio",
+  // Italian function/common words that kept slipping through the >=4 char filter.
+  "allora","ormai","appena","presto","tardi","subito","raramente","tanto","tanti","tante","alcuni","alcune","ancora",
+  "domanda","domande","rispondi","risposta","risposte","risponde","chiede","chiedi","chiedo","chiesto","chiesti","chieste",
+  "dire","dico","dici","dice","detto","detti","detta","dette","dicono","dicendo","dicevo","disse","dissi","dissero",
+  "vero","veri","vera","vere","verita","verità","falso","falsi","falsa","false",
+  "essere","siamo","siete","era","eri","ero","erano","fosse","fossi","fui","fu","stato","stata","stati","state","stando",
+  "andare","andiamo","andate","vado","vada","venire","vengo","viene","vieni","veniamo","venite","venuto","venuti",
+  "primo","seconda","secondo","terzo","ultimo","ultima","ultimi","ultime","prossimo","prossima","prossimi","prossime",
+  "qui","qua","lì","là","quella","quello","queste","questi","quelli","quelle",
+  "bene","molto","poco","poca","pochi","tutto","tutta","tutti","tutte","stesso","stessa","stessi","stesse",
+  "okay","perfetto","ottimo","ottima","ottimi","ottime","brava","bravo","brave","bravi","grazie",
+  "sembra","sembrava","sembrano","pare","pareva","parre","credo","penso","pensavo","credevo",
+  "cosa","cose","cosi","così","punto","punti","parte","parti","modo","modi","tipo","tipi",
+  "quindi","quello","questa","questo","cose","cose","contro","tra","fra","oltre","durante","mentre",
 ]);
 
 function median(arr) {
@@ -201,9 +215,11 @@ function computeNewVocabulary(parsed) {
   // a client name (problem) but also a researcher, a framework, a library
   // (signal). Distinguishing is hard automatically; the candidate sees the
   // list before submission and can regenerate if anything looks off.
+  // Word regex requires 5+ characters total: drops common short words like
+  // "vero", "dire", "ora", "ben" that slip through stopword lists.
   const word = new Map();
   const promptId = (s, m) => `${s.sessionId}:${m.uuid || m.ts}`;
-  const wordRe = /[A-Za-z][A-Za-z-]{3,}/g;
+  const wordRe = /[A-Za-z][A-Za-z-]{4,}/g;
 
   for (const s of parsed.sessions) {
     for (const m of s.messages) {
@@ -229,7 +245,9 @@ function computeNewVocabulary(parsed) {
 
   const candidates = [];
   for (const [w, e] of word) {
-    if (e.first >= mid && e.latePrompts.size >= 3) {
+    // Stricter than before: requires ≥4 distinct late prompts (was 3) so a
+    // word has to actually recur to qualify as "vocabulary adopted".
+    if (e.first >= mid && e.latePrompts.size >= 4) {
       candidates.push({ word: w, count: e.total, distinctLate: e.latePrompts.size });
     }
   }
