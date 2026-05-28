@@ -17,6 +17,10 @@ export async function submitProfile(profilePath, { endpoint } = {}) {
   const profile = JSON.parse(readFileSync(profilePath, "utf8"));
   if (profile.schema !== "playnew-profile/v1") throw new Error(`expected schema playnew-profile/v1, got ${profile.schema}`);
   if (!profile.contact?.email) throw new Error("missing contact.email: regenerate the profile with all fields");
+  // Strip repoLabel from every project before sending. The label is the
+  // candidate's own directory name and is meant ONLY to help them recognise
+  // their projects locally during curation — it must not reach Play New.
+  stripRepoLabels(profile);
 
   const url = endpoint || process.env.PLAYNEW_INTAKE_URL || DEFAULT_ENDPOINT;
   const form = new FormData();
@@ -33,4 +37,9 @@ export async function submitProfile(profilePath, { endpoint } = {}) {
   const res = await fetch(url, { method: "POST", body: form });
   if (!res.ok) throw new Error(`submit failed ${res.status}: ${await res.text()}`);
   return await res.json().catch(() => ({ status: "ok" }));
+}
+
+function stripRepoLabels(profile) {
+  for (const p of profile.projects ?? []) delete p.repoLabel;
+  for (const o of profile.otherProjects ?? []) delete o.repoLabel;
 }
