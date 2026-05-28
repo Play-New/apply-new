@@ -56,6 +56,8 @@ Shows you what's about to be sent, asks for confirmation, sends it to Play New. 
 - your code
 - your raw logs
 
+**Want it gone?** Email `hey@playnew.com` and we will delete your application and all attached artifacts from our side. Locally, just remove `profile.md` and `candidate.json` — they're plain files.
+
 ## Available commands
 
 | Command | What it does |
