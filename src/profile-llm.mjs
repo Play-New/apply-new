@@ -30,7 +30,7 @@ You also receive an AI_RELATIONSHIP block with a numeric split on a single conti
   - co-thinking: thinks out loud with the model, short conversational turns, open questions, lets the model push back.
 The midpoint of the axis is co-construction (using the model to define the problem, not just execute it). And a few example prompts for each pole. Write 2-3 sentences in ai_relationship.narrative about WHEN they pick one mode vs the other (e.g. "structured spec on data and security work; conversational on UI exploration"). Stay evidence-based, no labels, no judgement.
 
-The trajectory block also carries a `vocabularyCandidates` array: raw words that show up only in the late half of the window and recur across distinct prompts. Many of these are common chat words (verbs, adverbs). Pick the 6–10 that are clearly technical / domain-specific / concept names (e.g. business or technical jargon, framework or product names, methodology terms) and put them in trajectory.vocabulary_adopted. SKIP common verbs, adverbs, filler words.
+The trajectory block also carries a vocabularyCandidates array: raw words that show up only in the late half of the window and recur across distinct prompts. Many of these are common chat words (verbs, adverbs). Pick the 6–10 that are clearly technical / domain-specific / concept names (e.g. business or technical jargon, framework or product names, methodology terms) and put them in trajectory.vocabulary_adopted. SKIP common verbs, adverbs, filler words.
 
 Reply ONLY with a valid JSON in this shape:
 {
