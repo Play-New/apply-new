@@ -19,21 +19,6 @@ function tool(name, opts = {}) {
 function user(text, ts) { return { role: "user", ts, textRedacted: text, toolUses: [], toolResults: [], usage: null }; }
 function assistant(ts, tools = []) { return { role: "assistant", ts, textRedacted: "", toolUses: tools, toolResults: [], usage: null }; }
 
-test("clusters worktrees of the same repo together", () => {
-  const parsed = {
-    source: "claude-code",
-    sessions: [
-      session("a", "/Users/matteo/Github/my-app", ["2026-01-01T10:00:00Z"], [user("hello", "2026-01-01T10:00:00Z")]),
-      session("b", "/Users/matteo/Github/my-app-worktree-xyz", ["2026-01-05T10:00:00Z"], [user("hi", "2026-01-05T10:00:00Z")]),
-    ],
-  };
-  const d = buildDigest(parsed);
-  // Worktree dirs cluster differently (their last path segment differs) — this
-  // is documented behaviour. The base repo and the worktree appear as two
-  // products. What we DO assert here: ephemeral paths are filtered out.
-  assert.ok(d.projects.every((p) => !/private|tmp/.test(p.repo)));
-});
-
 test("ephemeral sandbox paths are excluded from the digest", () => {
   const parsed = {
     source: "claude-code",
