@@ -63,16 +63,19 @@ test("classifies a sustained product build with many commits", () => {
 
 test("selectRepresentatives recency is relative to the candidate's own window", async () => {
   const { selectRepresentatives } = await import("../src/profile.mjs");
-  // A candidate whose latest project ends in 2024-12. The bonus must kick in
-  // for ≥ 2024-10, NOT for an absolute date like 2026-04.
+  // Candidate's latest project ends 2024-12 → recency cutoff is 2024-10.
+  // The older project has slightly more work; the +8 recency bonus on the
+  // recent one must flip the order.
   const projects = [
-    // Lots of work, but ended a year before the window's end → no recency bonus
     { repo: "old-flagship", type: ["product-build"], from: "2023-01", to: "2023-12",
-      sessions: 50, landing: { commits: 100 }, researchToMutation: 1, delegation: 0, topAreas: {}, tech: [], learningTopics: [], promptSamples: [] },
-    // Smaller work, but recent → should get the recency bonus and beat the older one
+      sessions: 20, landing: { commits: 50 }, researchToMutation: 1, delegation: 0, topAreas: {}, tech: [], learningTopics: [], promptSamples: [] },
+    // Lower raw score, but ends within the last 2 months → recency bonus applies.
     { repo: "recent", type: ["audit-research"], from: "2024-10", to: "2024-12",
-      sessions: 20, landing: { commits: 30 }, researchToMutation: 5, delegation: 0, topAreas: {}, tech: [], learningTopics: [], promptSamples: [] },
+      sessions: 15, landing: { commits: 10 }, researchToMutation: 5, delegation: 0, topAreas: {}, tech: [], learningTopics: [], promptSamples: [] },
   ];
+  // old: 20 + 0.1*50 = 25.   recent: 15 + 0.1*10 + 8 = 24.   margin is tight on purpose.
+  // Adjust to make recency the unambiguous winner:
+  projects[1].sessions = 18; // recent: 18 + 1 + 8 = 27 > 25
   const picked = selectRepresentatives(projects, 1).filter((p) => p.selected).map((p) => p.repo);
   assert.deepEqual(picked, ["recent"], "recent project should win once recency is relative");
 });
