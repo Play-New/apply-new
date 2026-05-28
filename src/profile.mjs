@@ -62,7 +62,7 @@ function cognitiveTags(projects, fingerprint) {
 
 // --- assemble ----------------------------------------------------------------
 
-export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash }) {
+export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory }) {
   const froms = projects.map((p) => p.from).filter(Boolean).sort();
   const tos = projects.map((p) => p.to).filter(Boolean).sort();
   const selected = projects.filter((p) => p.selected);
@@ -99,10 +99,18 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
       type: p.type, span: { from: p.from, to: p.to }, sessions: p.sessions, includedBy: "tool:inventory",
     })),
     cognitive: { tags: cognitiveTags(projects, fingerprint), narrative: narrative?.cognitive?.narrative || null },
-    learning: {
-      tools: [...new Set(projects.flatMap((p) => p.tech))],
-      summary: narrative?.learning?.summary || null,
-    },
+    trajectory: trajectory
+      ? {
+          // Deterministic facts (Lot 1).
+          shifts: trajectory.shifts?.available ? trajectory.shifts : null,
+          topics: trajectory.topics || [],
+          newVocabulary: trajectory.newVocabulary || [],
+          // LLM-derived (Lot 2). Optional — may be null if no narrative ran.
+          narrative: narrative?.trajectory?.narrative || null,
+          principlesAdopted: narrative?.trajectory?.principles_adopted || [],
+        }
+      : null,
+    stackAdopted: [...new Set(projects.flatMap((p) => p.tech))],
     authenticity: { score: forensics?.score ?? null, manifestHash: manifestHash || null, note: "screen, not proof" },
   };
 }
@@ -144,9 +152,51 @@ export function renderMarkdown(p) {
   if (p.cognitive.tags.length) L.push(`tags: ${p.cognitive.tags.join(" · ")}`);
   if (p.cognitive.narrative) L.push(p.cognitive.narrative);
 
-  L.push(`\n## What they have learned`);
-  if (p.learning.tools.length) L.push(`stack adopted: ${p.learning.tools.join(", ")}`);
-  if (p.learning.summary) L.push(p.learning.summary);
+  // Trajectory: what changed strategically over the window. Numbers first, then
+  // the LLM narrative, then the principles the candidate codified for themselves.
+  if (p.trajectory) {
+    L.push(`\n## Trajectory`);
+    if (p.trajectory.narrative) L.push(p.trajectory.narrative);
+
+    if (p.trajectory.shifts && p.trajectory.shifts.deltas) {
+      L.push(`\nBehavioral shifts (early → late half${p.trajectory.shifts.midpoint ? `, split at ${p.trajectory.shifts.midpoint}` : ""}):`);
+      for (const d of p.trajectory.shifts.deltas) {
+        const arrow = d.dir === "up" ? "↑" : d.dir === "down" ? "↓" : d.dir === "stable" ? "·" : "";
+        L.push(`- ${d.metric}: ${formatVal(d.early, d.format)} → ${formatVal(d.late, d.format)} ${arrow}`);
+      }
+    }
+
+    if (p.trajectory.topics?.length) {
+      L.push(`\nTopics explored, by quarter:`);
+      for (const q of p.trajectory.topics) {
+        L.push(`- ${q.quarter}: ${q.themes.map((t) => `${t.name} (${t.count})`).join(", ")}`);
+      }
+    }
+
+    if (p.trajectory.newVocabulary?.length) {
+      L.push(`\nNew vocabulary adopted: ${p.trajectory.newVocabulary.join(", ")}`);
+    }
+
+    if (p.trajectory.principlesAdopted?.length) {
+      L.push(`\nPrinciples codified:`);
+      for (const pr of p.trajectory.principlesAdopted) {
+        const when = pr.when ? `_${pr.when}_ — ` : "";
+        L.push(`- ${when}${pr.text}`);
+      }
+    }
+  }
+
+  if (p.stackAdopted?.length) {
+    L.push(`\n## Stack adopted`);
+    L.push(p.stackAdopted.join(", "));
+  }
 
   return L.join("\n") + "\n";
+}
+
+function formatVal(v, fmt) {
+  if (v == null) return "n/a";
+  if (fmt === "percent") return `${Math.round(v * 100)}%`;
+  if (fmt === "ratio") return typeof v === "number" ? v.toFixed(2) : String(v);
+  return String(v);
 }

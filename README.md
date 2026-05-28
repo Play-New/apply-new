@@ -103,6 +103,12 @@ These are descriptors, not grades. There's no "better" cognitive tag — they're
 
 **Cognitive narrative** — 4–6 sentences written by *your* Claude instance, constrained on six dimensions: **decomposition · verification · error handling · orchestration · risk · calibrated trust in AI**. Hard rules in the prompt: no proper names, evidence-based only, no hyperbole.
 
+**Trajectory** — what changed strategically/culturally over the window, from four sources:
+- **Behavioral shifts**: same four metrics (decomposition, delegation, research:mutation, verification) measured on the early vs late half of the window. When they move, there's an apprenticeship.
+- **Topic clusters**: web queries grouped by theme (agent architecture, design, data, AI patterns, …) and ordered by quarter. The cultural reading list.
+- **New vocabulary**: words that appear only in the late half and recur across multiple distinct prompts. One-offs are filtered out.
+- **Principles codified**: lines the candidate added to their own CLAUDE.md / README over time — the rules they wrote for their future self and their agent.
+
 The reference we leaned on (the only one): [claude-session-analyzer](https://github.com/lucemia/claude-session-analyzer) by lucemia, for the Research:Mutation idea and the thinking-signature length as a depth proxy.
 
 ### What this is not

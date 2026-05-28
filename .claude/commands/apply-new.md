@@ -23,14 +23,24 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
    ```
    Show the candidate the line `… rappresentativi: …` from the output. This is the auto-selection of representative projects (flagships by significance + diversity by primary type).
 
-3. **Read `narrative-input.json`.** It contains, for each representative project: type tags, sessions, repo areas touched, stack, landing signals (commits/reverts/checks), sampled prompts, learning topics, and LOCAL repo context (the project's own description, documentation, dependencies, commit subjects). The local context contains real names and is for your eyes only.
+3. **Read `narrative-input.json`.** It contains:
+   - For each representative project: type tags, sessions, repo areas touched, stack, landing signals (commits/reverts/checks), sampled prompts, learning topics, LOCAL repo context (description, docs, deps, commit subjects).
+   - A `trajectory` block: behavioral shifts (numbers, early vs late half of the window), topic clusters per quarter from web research, new vocabulary that appeared only in the late half.
+   - A `principlesDiff`: lines the candidate ADDED to their own CLAUDE.md / README over time — their codified doctrine.
+   - `compactionSummaries`: dense self-portraits the model wrote about earlier sessions (already redacted).
+   The local context contains real names and is for your eyes only.
 
 4. **Write `narrative.json`** with exactly this shape:
    ```json
    {
      "summary": "2-3 sentences: how this person works with AI.",
      "cognitive": { "narrative": "4-6 sentences: decomposition, verification, error handling, orchestration, risk, calibrated trust in AI." },
-     "learning": { "summary": "1-2 sentences: what they have adopted recently and how fast." },
+     "trajectory": {
+       "narrative": "3-5 sentences on STRATEGIC and CULTURAL change over the window. Cite the data when it backs a claim. NO stack names here — those go in the separate stack section.",
+       "principles_adopted": [
+         { "when": "YYYY-MM", "text": "a principle the candidate codified (paraphrased from principlesDiff, abstract, no proper names)" }
+       ]
+     },
      "projects": [
        { "id": "p1", "domain": "abstract domain description", "did": "2-3 sentences on what they did", "why_representative": "1 sentence" }
      ]
@@ -55,6 +65,7 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
 6. **Show `profile.md`** to the candidate and ask, in this order:
    - **Are the representative projects right?** They can swap one with another from the inventory section.
    - **Want to attach an artifact** to any project? (deploy URL, repo URL, PR link, screenshot path). The candidate decides the confidentiality boundary — never push to attach.
+   - **Review the "new vocabulary" list in Trajectory.** Proper-noun filtering is intentionally NOT automatic (a researcher or framework name is signal; a client name isn't). Read the list aloud with them and offer to remove any word they consider sensitive. Edit `candidate.json` and re-render `profile.md` if needed.
    - **Anything to refine in the narrative?** If yes, rewrite `narrative.json` (same hard rules) and run finalize again.
 
 7. **Clean up.** Delete `narrative-input.json` once the candidate is satisfied (it contains local repo context with real names). Keep `narrative.json`, `candidate.json`, `profile.md`.

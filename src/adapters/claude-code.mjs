@@ -103,6 +103,11 @@ export function readClaudeCode(root) {
   const sessions = new Map();
   let redactionHits = 0;
   let redactedChars = 0;
+  // Compaction summaries: when Claude Code asks the model to summarise the
+  // session, the assistant reply is a dense self-portrait of how that work
+  // went. We collect them here for the narrative step.
+  const compactionSummaries = [];
+  let lastUserWasCompactionRequest = false;
 
   for (const r of records) {
     const sid = r.sessionId;
@@ -139,6 +144,17 @@ export function readClaudeCode(root) {
       redactionHits += countRedactions(text);
       const textRedacted = redactText(text);
       redactedChars += text.length - textRedacted.length;
+
+      // Catch compaction summaries: a user prompt that asks for a session
+      // summary followed by the assistant's reply. Already redacted.
+      if (r.type === "user" && /Your task is to create a detailed summary of the conversation/i.test(text)) {
+        lastUserWasCompactionRequest = true;
+      } else if (r.type === "assistant" && lastUserWasCompactionRequest) {
+        if (textRedacted.length > 200) compactionSummaries.push(textRedacted.slice(0, 3000));
+        lastUserWasCompactionRequest = false;
+      } else if (r.type === "user") {
+        lastUserWasCompactionRequest = false;
+      }
       s.messages.push({
         role: r.type,
         ts: r.timestamp,
@@ -176,6 +192,7 @@ export function readClaudeCode(root) {
     root,
     files,
     sessions: sessionList,
+    compactionSummaries,
     redaction: { hits: redactionHits, charsRemoved: redactedChars },
   };
 }

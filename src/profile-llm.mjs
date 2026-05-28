@@ -21,15 +21,24 @@ HARD RULES:
 
 You receive a JSON with the selected projects (opaque ids p1, p2, ...), each with: type, span, volumes, code areas, stack, landing signals (commits/reverts/checks), web-search topics, sampled prompts, and LOCAL repo context (description, docs, dependencies, commit subjects).
 
+You also receive a TRAJECTORY block (what changed over the window) with: behavioral shifts (numbers, early vs late half), topic clusters from web research, new vocabulary adopted late, principles the candidate added to their own CLAUDE.md / README diffs, and compaction summaries the model wrote about earlier sessions.
+
+For the trajectory narrative, focus on STRATEGIC AND CULTURAL change, NOT on stack adopted (the stack is rendered separately). Think: how their way of working evolved, what they came to value, the mental models they took on. Cite the numbers when they back a claim. Stay evidence-based.
+
 Reply ONLY with a valid JSON in this shape:
 {
   "summary": "2-3 sentences: how this person works with AI",
   "cognitive": { "narrative": "4-6 sentences on the cognitive profile: decomposition, verification, error handling, orchestration, risk, calibrated trust in AI" },
-  "learning": { "summary": "1-2 sentences: what they have adopted recently and how fast" },
+  "trajectory": {
+    "narrative": "3-5 sentences on strategic/cultural shift over the window. Cite the data. NO stack names here.",
+    "principles_adopted": [
+      { "when": "YYYY-MM (optional)", "text": "a principle the candidate codified" }
+    ]
+  },
   "projects": [ { "id": "p1", "domain": "abstract domain", "did": "2-3 sentences on what they did", "why_representative": "1 sentence" } ]
 }`;
 
-function narrativeInput(selected, enrichments) {
+function narrativeInput(selected, enrichments, trajectory, compactionSummaries) {
   return {
     projects: selected.map((p, i) => {
       const e = enrichments[i] || {};
@@ -49,6 +58,28 @@ function narrativeInput(selected, enrichments) {
         commits: e.commits || [],
       };
     }),
+    trajectory: trajectory
+      ? {
+          shifts: trajectory.shifts?.available
+            ? {
+                midpoint: trajectory.shifts.midpoint,
+                early: trajectory.shifts.early,
+                late: trajectory.shifts.late,
+                deltas: trajectory.shifts.deltas,
+              }
+            : null,
+          topicsByQuarter: trajectory.topics,
+          newVocabulary: trajectory.newVocabulary,
+        }
+      : null,
+    // Lines added to CLAUDE.md/README over time across the selected projects
+    // — candidate's own doctrine for their future self and their agent.
+    principlesDiff: enrichments
+      .flatMap((e) => (e.principlesDiff || []).map((p) => ({ ...p, repo: e.pkgName || null })))
+      .slice(-30),
+    // Dense self-portraits of how earlier work went, written by the model
+    // inside Claude Code as compaction summaries.
+    compactionSummaries: (compactionSummaries || []).slice(-6),
   };
 }
 
@@ -70,8 +101,8 @@ async function callAnthropic(input, key) {
 }
 
 // Returns { narrative, input }. narrative is null if no key and no override.
-export async function generateNarrative(selected, enrichments, { overrideFile } = {}) {
-  const input = narrativeInput(selected, enrichments);
+export async function generateNarrative(selected, enrichments, { overrideFile, trajectory, compactionSummaries } = {}) {
+  const input = narrativeInput(selected, enrichments, trajectory, compactionSummaries);
   const key = process.env.ANTHROPIC_API_KEY;
   if (key) return { narrative: await callAnthropic(input, key), input };
   if (overrideFile) return { narrative: JSON.parse(readFileSync(overrideFile, "utf8")), input };

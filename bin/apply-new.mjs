@@ -36,6 +36,7 @@ import { generateNarrative } from "../src/profile-llm.mjs";
 import { selectRepresentatives, assembleProfile, renderMarkdown } from "../src/profile.mjs";
 import { buildContact } from "../src/contact.mjs";
 import { submitProfile } from "../src/submit.mjs";
+import { buildTrajectory } from "../src/trajectory.mjs";
 
 const SUB_COMMANDS = new Set(["generate", "prepare", "finalize", "submit"]);
 
@@ -72,7 +73,8 @@ async function loadProfileInputs(out) {
   console.log(`      ${digest.projectCount} products, ${selected.length} representative: ${selected.map((p) => `${p.repo}[${p.type[0]}]`).join(", ")}`);
 
   const enrichments = selected.map((p) => enrichRepo(p.cwdRaw));
-  return { parsed, fingerprint, forensics, projects, selected, enrichments, out };
+  const trajectory = buildTrajectory(parsed);
+  return { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, out };
 }
 
 function resolveContact() {
@@ -97,7 +99,7 @@ function writeProfile(out, profile) {
 async function cmdGenerate() {
   const out = process.cwd();
   console.log(`\napply-new generate\n`);
-  const { fingerprint, forensics, projects, selected, enrichments } = await loadProfileInputs(out);
+  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory } = await loadProfileInputs(out);
   const { contact, errors } = resolveContact();
   if (errors.length) {
     console.error("\nMissing contact fields:");
@@ -107,7 +109,11 @@ async function cmdGenerate() {
 
   console.log(`[4/5] Narrative ...`);
   const narrativeFile = flag("narrative-file");
-  const { narrative, input } = await generateNarrative(selected, enrichments, { overrideFile: narrativeFile });
+  const { narrative, input } = await generateNarrative(selected, enrichments, {
+    overrideFile: narrativeFile,
+    trajectory,
+    compactionSummaries: parsed.compactionSummaries,
+  });
   if (!narrative) {
     writeFileSync(join(out, "narrative-input.json"), JSON.stringify(input, null, 2));
     console.log(`      no narrative yet (no API key, no --narrative-file).`);
@@ -118,7 +124,7 @@ async function cmdGenerate() {
 
   console.log(`[5/5] Assembling and saving ...\n`);
   writeProfile(out, assembleProfile({
-    contact, projects, narrative, fingerprint, forensics,
+    contact, projects, narrative, fingerprint, forensics, trajectory,
     manifestHash: fingerprint.manifest.bundleHash,
   }));
 }
@@ -126,8 +132,12 @@ async function cmdGenerate() {
 async function cmdPrepare() {
   const out = process.cwd();
   console.log(`\napply-new prepare\n`);
-  const { selected, enrichments } = await loadProfileInputs(out);
-  const { input } = await generateNarrative(selected, enrichments, { overrideFile: null });
+  const { parsed, selected, enrichments, trajectory } = await loadProfileInputs(out);
+  const { input } = await generateNarrative(selected, enrichments, {
+    overrideFile: null,
+    trajectory,
+    compactionSummaries: parsed.compactionSummaries,
+  });
   writeFileSync(join(out, "narrative-input.json"), JSON.stringify(input, null, 2));
   console.log(`Wrote narrative-input.json.`);
   console.log(`Next: write narrative.json (rules in the slash command), then  apply-new finalize`);
@@ -141,16 +151,20 @@ async function cmdFinalize() {
     console.error(`Missing ${narrativeFile}. Run apply-new prepare first, then write narrative.json.`);
     process.exit(2);
   }
-  const { fingerprint, forensics, projects, selected, enrichments } = await loadProfileInputs(out);
+  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory } = await loadProfileInputs(out);
   const { contact, errors } = resolveContact();
   if (errors.length) {
     console.error("\nMissing contact fields:");
     for (const e of errors) console.error("  - " + e);
     process.exit(2);
   }
-  const { narrative } = await generateNarrative(selected, enrichments, { overrideFile: narrativeFile });
+  const { narrative } = await generateNarrative(selected, enrichments, {
+    overrideFile: narrativeFile,
+    trajectory,
+    compactionSummaries: parsed.compactionSummaries,
+  });
   writeProfile(out, assembleProfile({
-    contact, projects, narrative, fingerprint, forensics,
+    contact, projects, narrative, fingerprint, forensics, trajectory,
     manifestHash: fingerprint.manifest.bundleHash,
   }));
 }

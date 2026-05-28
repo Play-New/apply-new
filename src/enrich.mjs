@@ -68,5 +68,38 @@ export function enrichRepo(cwdRaw) {
     out.totalCommits = +execSync(`git -C "${root}" rev-list --count HEAD`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null;
   } catch {}
 
+  // "Codified principles": lines ADDED over time to the project's doctrine
+  // files (CLAUDE.md, README.md). These are rules the candidate wrote for
+  // their future self and their agent — strategic, not technical.
+  out.principlesDiff = collectAddedDoctrineLines(root);
+
   return out;
+}
+
+function collectAddedDoctrineLines(root) {
+  const candidates = [];
+  for (const file of ["CLAUDE.md", "README.md"]) {
+    try {
+      const patch = execSync(
+        `git -C "${root}" log --reverse --pretty=format:"||COMMIT %ad" --date=short -p -50 -- "${file}"`,
+        { encoding: "utf8", maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
+      );
+      if (!patch) continue;
+      let date = null;
+      for (const line of patch.split("\n")) {
+        if (line.startsWith("||COMMIT ")) { date = line.slice(9).trim(); continue; }
+        if (!date) continue;
+        if (!line.startsWith("+") || line.startsWith("+++")) continue;
+        const text = line.slice(1).trim();
+        if (text.length < 20 || text.length > 300) continue;
+        if (/^[#`*\-_=>\[\]<]/.test(text)) continue; // headings, code, lists, html
+        if (/^[A-Z][\w\s]*:$/.test(text)) continue;  // "Section:" headers
+        candidates.push({ date, file, text });
+      }
+    } catch {}
+  }
+  // Dedupe by text, keep earliest date; sort ascending; cap.
+  const byText = new Map();
+  for (const c of candidates) if (!byText.has(c.text) || c.date < byText.get(c.text).date) byText.set(c.text, c);
+  return [...byText.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-30);
 }
