@@ -5,14 +5,26 @@
 
 // --- representative selection: significance, then type diversity -------------
 
-function score(p) {
+// "Recent" = last 2 months of the candidate's own window, not a fixed date.
+// Returns a "YYYY-MM" cutoff or null if the projects don't carry a usable end.
+function recencyCutoff(projects) {
+  const tos = projects.map((p) => p.to).filter(Boolean).sort();
+  if (!tos.length) return null;
+  const [y, m] = tos.at(-1).split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return null;
+  const d = new Date(Date.UTC(y, m - 1 - 2, 1)); // 2 months before the last end
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function score(p, recentSince) {
   let s = p.sessions + 0.1 * (p.landing.commits || 0);
-  if (p.to >= "2026-04") s += 8; // recency bonus (relative to the data window)
+  if (recentSince && p.to && p.to >= recentSince) s += 8;
   return s;
 }
 
 export function selectRepresentatives(projects, n = 4) {
-  const ranked = [...projects].sort((a, b) => score(b) - score(a));
+  const recentSince = recencyCutoff(projects);
+  const ranked = [...projects].sort((a, b) => score(b, recentSince) - score(a, recentSince));
   const picked = [];
   const types = new Set();
   const primary = (p) => p.type[0] || "exploration";

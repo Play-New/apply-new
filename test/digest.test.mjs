@@ -61,6 +61,22 @@ test("classifies a sustained product build with many commits", () => {
   assert.equal(p.landing.revertChurn, "low");
 });
 
+test("selectRepresentatives recency is relative to the candidate's own window", async () => {
+  const { selectRepresentatives } = await import("../src/profile.mjs");
+  // A candidate whose latest project ends in 2024-12. The bonus must kick in
+  // for ≥ 2024-10, NOT for an absolute date like 2026-04.
+  const projects = [
+    // Lots of work, but ended a year before the window's end → no recency bonus
+    { repo: "old-flagship", type: ["product-build"], from: "2023-01", to: "2023-12",
+      sessions: 50, landing: { commits: 100 }, researchToMutation: 1, delegation: 0, topAreas: {}, tech: [], learningTopics: [], promptSamples: [] },
+    // Smaller work, but recent → should get the recency bonus and beat the older one
+    { repo: "recent", type: ["audit-research"], from: "2024-10", to: "2024-12",
+      sessions: 20, landing: { commits: 30 }, researchToMutation: 5, delegation: 0, topAreas: {}, tech: [], learningTopics: [], promptSamples: [] },
+  ];
+  const picked = selectRepresentatives(projects, 1).filter((p) => p.selected).map((p) => p.repo);
+  assert.deepEqual(picked, ["recent"], "recent project should win once recency is relative");
+});
+
 test("classifies an audit-research project (lots of reads, few mutations)", () => {
   const cwd = "/Users/matteo/Github/audit-target";
   const reads = Array.from({ length: 200 }, () => tool("Read", { path: `${cwd}/src/x.ts` }));
