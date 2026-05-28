@@ -8,9 +8,9 @@
 import { readFileSync, existsSync } from "node:fs";
 import { basename } from "node:path";
 
-// Play New intake lives inside the play-new-dashboard at /api/apply.
-// Override via PLAYNEW_INTAKE_URL or --endpoint for staging/local.
-const DEFAULT_ENDPOINT = "https://playnew.com/api/apply";
+// Play New intake lives inside the play-new-dashboard at /api/apply on the
+// canonical host. Override via PLAYNEW_INTAKE_URL or --endpoint for staging/local.
+const DEFAULT_ENDPOINT = "https://intelligence.playnew.com/api/apply";
 
 export async function submitProfile(profilePath, { endpoint } = {}) {
   if (!existsSync(profilePath)) throw new Error(`profile not found: ${profilePath}`);
