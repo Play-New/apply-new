@@ -83,6 +83,11 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
     summary: narrative?.summary || null,
     projects: selected.map((p, i) => ({
       id: `p${i + 1}`,
+      // Repo label: the directory name of the candidate's own repo. Lets the
+      // candidate match `p1` to a concrete project they recognise during
+      // curation. They can remove it from candidate.json before submitting
+      // if it would leak a client name.
+      repoLabel: p.repo || null,
       selected: true,
       type: p.type,
       domain: nById(i).domain || null,
@@ -96,6 +101,7 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
       artifact: null, // candidate opt-in
     })),
     otherProjects: others.map((p) => ({
+      repoLabel: p.repo || null,
       type: p.type, span: { from: p.from, to: p.to }, sessions: p.sessions, includedBy: "tool:inventory",
     })),
     cognitive: { tags: cognitiveTags(projects, fingerprint), narrative: narrative?.cognitive?.narrative || null },
@@ -112,7 +118,10 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
           // Deterministic facts (Lot 1).
           shifts: trajectory.shifts?.available ? trajectory.shifts : null,
           topics: trajectory.topics || [],
-          newVocabulary: trajectory.newVocabulary || [],
+          // The LLM filters domain/technical words out of the raw recurring
+          // list; if the model didn't run, fall back to the raw candidates.
+          newVocabulary:
+            narrative?.trajectory?.vocabulary_adopted ?? trajectory.vocabularyCandidates ?? [],
           // LLM-derived (Lot 2). Optional — may be null if no narrative ran.
           narrative: narrative?.trajectory?.narrative || null,
           principlesAdopted: narrative?.trajectory?.principles_adopted || [],
@@ -145,7 +154,8 @@ export function renderMarkdown(p) {
 
   L.push(`\n## Representative projects`);
   for (const pr of p.projects) {
-    L.push(`\n### ${pr.domain || "(domain)"}  ·  ${pr.type.join(" · ")}`);
+    const headTail = pr.repoLabel ? ` _(${pr.id} — ${pr.repoLabel})_` : ` _(${pr.id})_`;
+    L.push(`\n### ${pr.domain || "(domain)"}  ·  ${pr.type.join(" · ")}${headTail}`);
     L.push(`${pr.span.from}→${pr.span.to} · ${pr.sessions} sessions · ${land(pr.landing)}`);
     if (pr.tech.length) L.push(`stack: ${pr.tech.join(", ")}`);
     if (pr.did) L.push(pr.did);
@@ -155,8 +165,10 @@ export function renderMarkdown(p) {
 
   if (p.otherProjects.length) {
     L.push(`\n## Other projects (inventory)`);
-    for (const o of p.otherProjects)
-      L.push(`- ${o.type.join(" · ")} · ${o.span.from}→${o.span.to} · ${o.sessions} sess`);
+    for (const o of p.otherProjects) {
+      const tag = o.repoLabel ? ` _(${o.repoLabel})_` : "";
+      L.push(`- ${o.type.join(" · ")} · ${o.span.from}→${o.span.to} · ${o.sessions} sess${tag}`);
+    }
   }
 
   L.push(`\n## Cognitive profile`);

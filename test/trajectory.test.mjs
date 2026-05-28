@@ -75,21 +75,20 @@ test("system-injected compaction prompts are excluded from prompt-length metrics
   assert.ok(median.early == null || median.early < 50, `compaction prompt leaked: early=${median.early}`);
 });
 
-test("new vocabulary surfaces words that appear only in the late half", () => {
+test("vocabulary candidates surface words that appear only in the late half", () => {
   const parsed = {
     sessions: [
-      session("e", ["2026-01-01T10:00:00Z"], [user("simple change here please thanks", "2026-01-01T10:00:00Z")]),
+      session("e", ["2026-01-01T10:00:00Z"], [user("simple change here please", "2026-01-01T10:00:00Z")]),
       session("e2", ["2026-01-05T10:00:00Z"], [user("simple change again here", "2026-01-05T10:00:00Z")]),
-      session("l1", ["2026-05-01T10:00:00Z"], [user("apply enrichment pipeline carefully", "2026-05-01T10:00:00Z")]),
-      session("l2", ["2026-05-05T10:00:00Z"], [user("enrichment layer should run first", "2026-05-05T10:00:00Z")]),
-      session("l3", ["2026-05-10T10:00:00Z"], [user("the enrichment phase is now interesting", "2026-05-10T10:00:00Z")]),
-      session("l4", ["2026-05-15T10:00:00Z"], [user("enrichment again carefully here", "2026-05-15T10:00:00Z")]),
+      session("l1", ["2026-05-01T10:00:00Z"], [user("apply enrichment pipeline", "2026-05-01T10:00:00Z")]),
+      session("l2", ["2026-05-05T10:00:00Z"], [user("enrichment layer should run", "2026-05-05T10:00:00Z")]),
+      session("l3", ["2026-05-10T10:00:00Z"], [user("the enrichment phase here", "2026-05-10T10:00:00Z")]),
     ],
   };
   const t = buildTrajectory(parsed);
-  assert.ok(t.newVocabulary.includes("enrichment"), `newVocabulary missing 'enrichment': ${t.newVocabulary.join(", ")}`);
+  assert.ok(t.vocabularyCandidates.includes("enrichment"), `vocabularyCandidates missing 'enrichment': ${t.vocabularyCandidates.join(", ")}`);
   // 'simple' is early and should NOT be in the late-vocab.
-  assert.ok(!t.newVocabulary.includes("simple"));
+  assert.ok(!t.vocabularyCandidates.includes("simple"));
 });
 
 test("topics cluster web queries into themes per quarter", () => {

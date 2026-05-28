@@ -211,15 +211,12 @@ function computeNewVocabulary(parsed) {
   const mid = earlyTs[Math.floor(earlyTs.length / 2)];
 
   // word -> { firstSeenTs, latePrompts, total }
-  // Note: we deliberately DON'T filter proper nouns. A capitalised word can be
-  // a client name (problem) but also a researcher, a framework, a library
-  // (signal). Distinguishing is hard automatically; the candidate sees the
-  // list before submission and can regenerate if anything looks off.
-  // Word regex requires 5+ characters total: drops common short words like
-  // "vero", "dire", "ora", "ben" that slip through stopword lists.
+  // We produce CANDIDATES here: late-only words that recur. Telling
+  // "domain-specific" apart from "common chat" requires semantics, so the
+  // LLM step does the final filter on this list.
   const word = new Map();
   const promptId = (s, m) => `${s.sessionId}:${m.uuid || m.ts}`;
-  const wordRe = /[A-Za-z][A-Za-z-]{4,}/g;
+  const wordRe = /[A-Za-z][A-Za-z-]{3,}/g;
 
   for (const s of parsed.sessions) {
     for (const m of s.messages) {
@@ -245,20 +242,23 @@ function computeNewVocabulary(parsed) {
 
   const candidates = [];
   for (const [w, e] of word) {
-    // Stricter than before: requires ≥4 distinct late prompts (was 3) so a
-    // word has to actually recur to qualify as "vocabulary adopted".
-    if (e.first >= mid && e.latePrompts.size >= 4) {
+    if (e.first >= mid && e.latePrompts.size >= 3) {
       candidates.push({ word: w, count: e.total, distinctLate: e.latePrompts.size });
     }
   }
   candidates.sort((a, b) => b.distinctLate - a.distinctLate || b.count - a.count);
-  return candidates.slice(0, 12).map((c) => c.word);
+  // Up to 30 candidates: the LLM gets generous breadth and picks ~6-10 that
+  // are actually domain/technical concepts.
+  return candidates.slice(0, 30).map((c) => c.word);
 }
 
 export function buildTrajectory(parsed) {
   return {
     shifts: computeShifts(parsed),
     topics: computeTopics(parsed),
-    newVocabulary: computeNewVocabulary(parsed),
+    // Raw recurring-late words. The LLM step picks the technical/domain ones
+    // out of this list and writes them into trajectory.vocabularyAdopted on
+    // the final profile.
+    vocabularyCandidates: computeNewVocabulary(parsed),
   };
 }

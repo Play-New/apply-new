@@ -24,11 +24,13 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
    Show the candidate the line `… rappresentativi: …` from the output. This is the auto-selection of representative projects (flagships by significance + diversity by primary type).
 
 3. **Read `narrative-input.json`.** It contains:
-   - For each representative project: type tags, sessions, repo areas touched, stack, landing signals (commits/reverts/checks), sampled prompts, learning topics, LOCAL repo context (description, docs, deps, commit subjects).
-   - A `trajectory` block: behavioral shifts (numbers, early vs late half of the window), topic clusters per quarter from web research, new vocabulary that appeared only in the late half.
+   - For each representative project: an id (`p1`, `p2`, …), a `repoLabel` (the candidate's own repo directory name — use this to talk to the candidate so they know which project you mean), type tags, sessions, repo areas touched, stack, landing signals, sampled prompts, learning topics, LOCAL repo context.
+   - A `trajectory` block: behavioral shifts (numbers, early vs late half), topic clusters per quarter from web research, `vocabularyCandidates` (raw recurring-late words — many are common chat words, you pick the technical/domain-specific ones).
    - A `principlesDiff`: lines the candidate ADDED to their own CLAUDE.md / README over time — their codified doctrine.
    - `compactionSummaries`: dense self-portraits the model wrote about earlier sessions (already redacted).
    The local context contains real names and is for your eyes only.
+
+   **Always refer to projects by `repoLabel` when talking to the candidate** (e.g. "for *flatmates-platform* you'd want to..."), never by opaque `p1`/`p2`.
 
 4. **Write `narrative.json`** with exactly this shape:
    ```json
@@ -37,6 +39,7 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
      "cognitive": { "narrative": "4-6 sentences: decomposition, verification, error handling, orchestration, risk, calibrated trust in AI." },
      "trajectory": {
        "narrative": "3-5 sentences on STRATEGIC and CULTURAL change over the window. Cite the data when it backs a claim. NO stack names here — those go in the separate stack section.",
+       "vocabulary_adopted": ["6-10 technical/domain words picked from vocabularyCandidates (skip common verbs/adverbs)"],
        "principles_adopted": [
          { "when": "YYYY-MM", "text": "a principle the candidate codified (paraphrased from principlesDiff, abstract, no proper names)" }
        ]

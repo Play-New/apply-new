@@ -30,6 +30,8 @@ You also receive an AI_RELATIONSHIP block with a numeric split on a single conti
   - co-thinking: thinks out loud with the model, short conversational turns, open questions, lets the model push back.
 The midpoint of the axis is co-construction (using the model to define the problem, not just execute it). And a few example prompts for each pole. Write 2-3 sentences in ai_relationship.narrative about WHEN they pick one mode vs the other (e.g. "structured spec on data and security work; conversational on UI exploration"). Stay evidence-based, no labels, no judgement.
 
+The trajectory block also carries a `vocabularyCandidates` array: raw words that show up only in the late half of the window and recur across distinct prompts. Many of these are common chat words (verbs, adverbs). Pick the 6–10 that are clearly technical / domain-specific / concept names (e.g. business or technical jargon, framework or product names, methodology terms) and put them in trajectory.vocabulary_adopted. SKIP common verbs, adverbs, filler words.
+
 Reply ONLY with a valid JSON in this shape:
 {
   "summary": "2-3 sentences: how this person works with AI",
@@ -37,6 +39,7 @@ Reply ONLY with a valid JSON in this shape:
   "ai_relationship": { "narrative": "2-3 sentences on when they pick directing vs co-thinking mode" },
   "trajectory": {
     "narrative": "3-5 sentences on strategic/cultural shift over the window. Cite the data. NO stack names here.",
+    "vocabulary_adopted": ["6-10 technical/domain words picked from vocabularyCandidates"],
     "principles_adopted": [
       { "when": "YYYY-MM (optional)", "text": "a principle the candidate codified" }
     ]
@@ -50,6 +53,7 @@ function narrativeInput(selected, enrichments, trajectory, compactionSummaries, 
       const e = enrichments[i] || {};
       return {
         id: `p${i + 1}`,
+        repoLabel: p.repo || null,
         type: p.type,
         span: `${p.from}->${p.to}`,
         sessions: p.sessions,
@@ -75,7 +79,7 @@ function narrativeInput(selected, enrichments, trajectory, compactionSummaries, 
               }
             : null,
           topicsByQuarter: trajectory.topics,
-          newVocabulary: trajectory.newVocabulary,
+          vocabularyCandidates: trajectory.vocabularyCandidates,
         }
       : null,
     // Lines added to CLAUDE.md/README over time across the selected projects
