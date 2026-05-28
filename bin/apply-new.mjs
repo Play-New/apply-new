@@ -37,6 +37,7 @@ import { selectRepresentatives, assembleProfile, renderMarkdown } from "../src/p
 import { buildContact } from "../src/contact.mjs";
 import { submitProfile } from "../src/submit.mjs";
 import { buildTrajectory } from "../src/trajectory.mjs";
+import { assessGroundedness } from "../src/groundedness.mjs";
 
 const SUB_COMMANDS = new Set(["generate", "prepare", "finalize", "submit"]);
 
@@ -123,10 +124,16 @@ async function cmdGenerate() {
   }
 
   console.log(`[5/5] Assembling and saving ...\n`);
-  writeProfile(out, assembleProfile({
+  const draft = assembleProfile({
     contact, projects, narrative, fingerprint, forensics, trajectory,
     manifestHash: fingerprint.manifest.bundleHash,
-  }));
+  });
+  const groundedness = assessGroundedness(draft);
+  const full = assembleProfile({
+    contact, projects, narrative, fingerprint, forensics, trajectory, groundedness,
+    manifestHash: fingerprint.manifest.bundleHash,
+  });
+  writeProfile(out, full);
 }
 
 async function cmdPrepare() {
@@ -163,8 +170,13 @@ async function cmdFinalize() {
     trajectory,
     compactionSummaries: parsed.compactionSummaries,
   });
-  writeProfile(out, assembleProfile({
+  const draft = assembleProfile({
     contact, projects, narrative, fingerprint, forensics, trajectory,
+    manifestHash: fingerprint.manifest.bundleHash,
+  });
+  const groundedness = assessGroundedness(draft);
+  writeProfile(out, assembleProfile({
+    contact, projects, narrative, fingerprint, forensics, trajectory, groundedness,
     manifestHash: fingerprint.manifest.bundleHash,
   }));
 }
@@ -188,9 +200,28 @@ async function cmdSubmit() {
   console.log(`  artifacts: ${(profile.projects || []).filter((p) => p.artifact).length}`);
   console.log(`\nNOT submitted: raw logs, local repo context, third-party proper names.`);
 
+  // Pre-flight groundedness: how much of the prose is anchored in the data.
+  const g = assessGroundedness(profile);
+  console.log(`\nGroundedness check`);
+  if (g.score == null) {
+    console.log(`  not enough verifiable anchors in the prose (n/a)`);
+  } else {
+    console.log(`  ${g.score}% of prose anchors are supported by the structured data (${g.supported}/${g.total})`);
+  }
+  if (g.anomalies.length) {
+    console.log(`  Unverifiable in your logs:`);
+    for (const a of g.anomalies) console.log(`    - ${a.where}: "${a.anchor}" (${a.kind})`);
+    console.log(`  Consider regenerating, or editing candidate.json before submitting.`);
+  }
+
   if (!has("yes")) {
     console.log(`\nTo confirm:  apply-new submit --yes`);
     return;
+  }
+  if (g.score != null && g.score < 60 && !has("force")) {
+    console.error(`\nGroundedness is low (${g.score}%). Submission blocked.`);
+    console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
+    process.exit(2);
   }
 
   const endpoint = flag("endpoint");

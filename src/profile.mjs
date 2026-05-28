@@ -62,7 +62,7 @@ function cognitiveTags(projects, fingerprint) {
 
 // --- assemble ----------------------------------------------------------------
 
-export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory }) {
+export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory, groundedness }) {
   const froms = projects.map((p) => p.from).filter(Boolean).sort();
   const tos = projects.map((p) => p.to).filter(Boolean).sort();
   const selected = projects.filter((p) => p.selected);
@@ -112,6 +112,9 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
       : null,
     stackAdopted: [...new Set(projects.flatMap((p) => p.tech))],
     authenticity: { score: forensics?.score ?? null, manifestHash: manifestHash || null, note: "screen, not proof" },
+    groundedness: groundedness
+      ? { score: groundedness.score, supported: groundedness.supported, total: groundedness.total }
+      : null,
   };
 }
 

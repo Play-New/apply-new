@@ -103,6 +103,8 @@ These are descriptors, not grades. There's no "better" cognitive tag — they're
 
 **Cognitive narrative** — 4–6 sentences written by *your* Claude instance, constrained on six dimensions: **decomposition · verification · error handling · orchestration · risk · calibrated trust in AI**. Hard rules in the prompt: no proper names, evidence-based only, no hyperbole.
 
+**Groundedness check** — before submission we run a small deterministic check on the prose fields (`summary`, `cognitive narrative`, `trajectory narrative`, per-project `did`, `why representative`, `domain`, `principles adopted`). For every verifiable anchor in the prose — a number, a technology name, a type tag, a year-month — we check that it exists in the structured data the prose was generated from. The score is the percentage of anchors with a match (`92%` = "9 anchors in 10 trace back to your logs"). If the score is below 60% the submission is blocked; you can re-generate the profile or pass `--force` if you have a reason. Visible to you locally before submit, and stored next to the profile so Play New can see it too.
+
 **Trajectory** — what changed strategically/culturally over the window, from four sources:
 - **Behavioral shifts**: same four metrics (decomposition, delegation, research:mutation, verification) measured on the early vs late half of the window. When they move, there's an apprenticeship.
 - **Topic clusters**: web queries grouped by theme (agent architecture, design, data, AI patterns, …) and ordered by quarter. The cultural reading list.
