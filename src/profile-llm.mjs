@@ -25,16 +25,16 @@ You also receive a TRAJECTORY block (what changed over the window) with: behavio
 
 For the trajectory narrative, focus on STRATEGIC AND CULTURAL change, NOT on stack adopted (the stack is rendered separately). Think: how their way of working evolved, what they came to value, the mental models they took on. Cite the numbers when they back a claim. Stay evidence-based.
 
-You also receive an AI_RELATIONSHIP block with a numeric split between two poles:
-  - executor-leaning: treats the model like a careful junior, with long structured prompts, file paths, numbered steps, acceptance criteria.
-  - symbient-leaning: thinks out loud with the model, short conversational turns, open questions, lets the model push back.
-And a few example prompts for each pole. Write 2-3 sentences in ai_relationship.narrative about WHEN they pick one mode vs the other (e.g. "structured spec on data and security work; conversational on UI exploration"). Stay evidence-based, no labels, no judgement.
+You also receive an AI_RELATIONSHIP block with a numeric split on a single continuous axis with two poles:
+  - directing: treats the model like a careful junior, with long structured prompts, file paths, numbered steps, acceptance criteria.
+  - co-thinking: thinks out loud with the model, short conversational turns, open questions, lets the model push back.
+The midpoint of the axis is co-construction (using the model to define the problem, not just execute it). And a few example prompts for each pole. Write 2-3 sentences in ai_relationship.narrative about WHEN they pick one mode vs the other (e.g. "structured spec on data and security work; conversational on UI exploration"). Stay evidence-based, no labels, no judgement.
 
 Reply ONLY with a valid JSON in this shape:
 {
   "summary": "2-3 sentences: how this person works with AI",
   "cognitive": { "narrative": "4-6 sentences on the cognitive profile: decomposition, verification, error handling, orchestration, risk, calibrated trust in AI" },
-  "ai_relationship": { "narrative": "2-3 sentences on when they pick executor vs symbient mode" },
+  "ai_relationship": { "narrative": "2-3 sentences on when they pick directing vs co-thinking mode" },
   "trajectory": {
     "narrative": "3-5 sentences on strategic/cultural shift over the window. Cite the data. NO stack names here.",
     "principles_adopted": [
@@ -89,8 +89,8 @@ function narrativeInput(selected, enrichments, trajectory, compactionSummaries, 
     aiRelationship: aiRelationship
       ? {
           mode: aiRelationship.mode,
-          executor: aiRelationship.executor,
-          symbient: aiRelationship.symbient,
+          directing: aiRelationship.directing,
+          coThinking: aiRelationship.coThinking,
           sampledPrompts: aiRelationship.sampledPrompts,
           examples: aiRelationship.examples,
         }

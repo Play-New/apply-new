@@ -102,8 +102,8 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
     aiRelationship: aiRelationship
       ? {
           mode: aiRelationship.mode,
-          executor: aiRelationship.executor,
-          symbient: aiRelationship.symbient,
+          directing: aiRelationship.directing,
+          coThinking: aiRelationship.coThinking,
           narrative: narrative?.ai_relationship?.narrative || null,
         }
       : null,
@@ -165,7 +165,7 @@ export function renderMarkdown(p) {
 
   if (p.aiRelationship) {
     L.push(`\n## How they work with the AI`);
-    L.push(`${p.aiRelationship.executor}% executor · ${p.aiRelationship.symbient}% symbient · ${p.aiRelationship.mode}`);
+    L.push(`${p.aiRelationship.directing}% directing · ${p.aiRelationship.coThinking}% co-thinking · ${p.aiRelationship.mode}`);
     if (p.aiRelationship.narrative) L.push(p.aiRelationship.narrative);
   }
 

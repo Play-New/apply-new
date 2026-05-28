@@ -2,18 +2,16 @@
 
 > `apply-new` — a new way to apply for a job at Play New.
 
-We don't read CVs. A CV tells us what you did; we want to see *how* you think. If you work with AI tools every day, the way you reason, decompose, verify, and recover from mistakes is already written down — it's sitting in your Claude Code logs. Apply New turns those logs into a short, anonymized work profile, and lets you decide what to do with it.
+A CV tells us what you did. We want to see *how* you think. If you work with AI tools every day, the way you reason, decompose, verify, and recover from mistakes is already written down — it's in your Claude Code logs. Apply New turns those logs into a short, anonymised work profile, and lets you decide what to do with it.
 
-Two things matter:
-
-- **Your data stays yours.** Everything runs on your laptop. Names of clients, products, people are stripped out. You see the profile before anyone else does, and you can keep it just for yourself.
+- **Your data stays yours.** Everything runs on your laptop. Client, product and people names are stripped out. You see the profile before anyone else does — and you can keep it just for yourself.
 - **You write it, your AI helps.** The qualitative parts use *your* Claude Code subscription — no API key, no extra cost. The profile sounds like you.
 
-> Today Apply New reads **Claude Code** logs. Codex CLI, Gemini CLI, and ChatGPT / Claude.ai exports are on the roadmap — coming soon.
+> Today Apply New reads **Claude Code** logs. Codex CLI, Gemini CLI, and ChatGPT / Claude.ai exports are on the roadmap.
 
 ## How to use it
 
-You need [Claude Code](https://claude.com/claude-code) installed and a Claude subscription (Pro, Max, or Enterprise).
+You need [Claude Code](https://claude.com/claude-code) and a Claude subscription (Pro, Max, or Enterprise).
 
 ```
 git clone https://github.com/Play-New/apply-new
@@ -22,17 +20,17 @@ claude
 > /apply-new
 ```
 
-The slash command will:
+The slash command:
 
-1. ask you for a few contact fields (name, email, city, status)
-2. read your Claude Code history locally and reconstruct your projects
-3. let your Claude write a short profile in your voice
-4. show you the result and help you adjust it
-5. tell you how to submit when you're ready — **submission is a separate step**
+1. Asks for four contact fields (name, email, city, status: `freelance` / `employed` / `student` / `looking`).
+2. Reads your Claude Code history locally and reconstructs your projects.
+3. Lets your Claude write a short profile in your voice.
+4. Shows you `profile.md` so you can adjust it.
+5. Tells you how to submit when you're ready — **submission is a separate step**.
 
-You'll end up with two files on your computer:
+You'll end up with two files:
 - `profile.md` — readable by you and a recruiter
-- `candidate.json` — readable by an agent (for matching and ranking)
+- `candidate.json` — readable by an agent (matching, ranking)
 
 ## Submit when (and if) you want
 
@@ -40,130 +38,109 @@ You'll end up with two files on your computer:
 apply-new submit --yes
 ```
 
-Shows you what's about to be sent, asks for confirmation, sends it to Play New. You can also keep the profile just for yourself and never run this.
+Shows what's about to be sent, asks for confirmation, sends it to Play New. You can also keep the profile just for yourself and never run this.
 
-## What we collect, what we don't
-
-**We collect, with your consent:**
-- the four contact fields you typed
-- the volume of your work (sessions, products, time window, models used)
-- per representative project: an abstract description, the kind of work, the stack, signals like commits/reverts/checks passed
-- a few cognitive tags (e.g. *research-first*, *orchestrator*, *verification-heavy*) derived from numbers, not opinions
-- artifacts you explicitly chose to attach
-
-**We never collect:**
-- names of companies, clients, people, products, brands, or repositories
-- your code
-- your raw logs
-
-**What we do with it.** Your application is read by a human at Play New and matched against the projects we have open (skills, working style, availability, location). If we see a fit, we get back to you. We do not pass your data to anyone outside Play New, we do not train models on it, we do not include it in dashboards visible to clients.
-
-**Want it gone?** Email `hey@playnew.com` and we will delete your application and all attached artifacts from our side. Locally, just remove `profile.md` and `candidate.json` — they're plain files.
-
-## Purpose & policy
-
-Apply New helps us understand *how you work with AI*, to match you with the right project. It is not a personality assessment, not a ranking system, and not a substitute for a real conversation.
-
-**The decision is human.** Every application is read by a person. The AI generates the profile from your logs; the AI does not score, rank, or filter candidates.
-
-**Legal basis for processing (EU GDPR 2016/679):** explicit consent. You run `apply-new submit --yes` knowing what is being sent. We process the four contact fields plus the redacted profile to evaluate fit and to reply to you.
-
-**Your rights:** access, rectification, erasure, portability, objection, restriction. To exercise any of these write to `hey@playnew.com`. Your `candidate.json` is already a complete copy of what we hold.
-
-**Retention.** We keep an application while there is active interest or for up to 12 months from submission, whichever ends first. After that we delete it. You can ask for early deletion at any time.
-
-**EU AI Act note (Regulation 2024/1689).** Systems used in recruitment to "analyse and filter job applications and evaluate candidates" are classified as high-risk under Annex III §4(a). We treat Apply New as such, with the obligations that come with it:
-- *Transparency.* This README and [PRIVACY.md](PRIVACY.md) describe in plain terms what the tool measures and how. The source is public.
-- *Human oversight.* No automated decision is made. A person at Play New reads each profile and decides.
-- *Disclosure.* You are interacting with an AI-powered tool. The narrative parts of your profile were generated by a model.
-- *Data governance.* Logs stay on your machine; only a redacted, consented subset is transmitted, with declared retention.
-
-If you are unsure or want a fully manual alternative, write to `hey@playnew.com` — we will arrange a no-tool conversation.
-
-## Available commands
+## Commands
 
 | Command | What it does |
 |---|---|
 | `apply-new generate` *(default)* | full profile, locally |
-| `apply-new prepare` | only writes `narrative-input.json` (if you want to write the narrative manually) |
+| `apply-new prepare` | only `narrative-input.json` (if you want to write the narrative manually) |
 | `apply-new finalize --narrative-file narrative.json` | finalize after `prepare` |
 | `apply-new submit --yes` | send to Play New |
 
 Common flags: `--name`, `--email`, `--city`, `--status`, `--top N`, `--root <dir>`.
 
-Alternative paths if you don't have Claude Code:
-- `ANTHROPIC_API_KEY=… apply-new generate` automates the narrative via the Claude API.
-- Manual: `prepare` → write `narrative.json` by hand → `finalize`.
+If you don't have Claude Code, you can also: `ANTHROPIC_API_KEY=… apply-new generate` (automates the narrative via the Claude API), or `prepare` → write `narrative.json` by hand → `finalize`.
 
-## How we build the cognitive profile
+## What we collect, what we don't
 
-We didn't want to build "AI judges humans". The profile is a **portrait, not a grade** — useful for the candidate (to see how they actually work) as much as for whoever reads it (to start a real conversation).
+With your consent, the submitted bundle contains:
+- the four contact fields you typed
+- a `playnew-profile/v1` JSON (window, volumes, representative projects with abstract domains, cognitive tags, trajectory, stack adopted)
+- artifacts you explicitly chose to attach
 
-### What we measure, and how
+It does **not** contain:
+- names of companies, clients, people, products, brands, or repositories
+- your code
+- your raw logs
 
-**Project types** — descriptive tags computed from the files you actually touched:
+**What we do with it.** A human at Play New reads it and matches you against open projects. We don't pass your data outside Play New, train models on it, or include it in client-facing dashboards.
 
-| Tag | When it appears |
+**Want it gone?** Email `hey@playnew.com` and we delete your application and any attached artifacts. Locally, just remove `profile.md` and `candidate.json` — they're plain files.
+
+## How we build the profile
+
+The profile is a **portrait, not a grade** — useful for you (to see how you actually work) as much as for whoever reads it.
+
+**Project types** — descriptive tags computed from the files you touched:
+
+| Tag | Trigger |
 |---|---|
-| `product-build` | sustained work on a single product (>200 mutations over >14 days) |
-| `audit-research` | heavy on reading and analysis, light on changes (Research:Mutation > 10) |
-| `agent-tooling` | skill/command/hook files for AI agents |
-| `data-migration` | schema, SQL, or migration files involved |
-| `static-site` | HTML-heavy mutations |
-| `ai-platform` | API routes for chat/agent/connectors |
+| `product-build` | sustained work on one product (>200 mutations over >14 days) |
+| `audit-research` | heavy reading and analysis, light changes (R:M > 10) |
+| `agent-tooling` | skill / command / hook files for AI agents |
+| `data-migration` | schema, SQL, or migration files |
+| `static-site` | HTML-heavy |
+| `ai-platform` | API routes for chat / agent / connectors |
 | `feature-work`, `testing`, `quality-gating`, `orchestrated`, `design-research` | self-explanatory |
 
-**Cognitive tags** — derived from thresholds on objective signals in your logs:
+**Cognitive tags** — derived from thresholds on objective signals:
 
 | Tag | Threshold |
 |---|---|
-| `research-first` | average Research:Mutation ratio above 2 |
+| `research-first` | average Research:Mutation above 2 |
 | `decomposer` | median prompt length ≥ 25 words |
-| `orchestrator` | Task/Agent delegations total ≥ 15 |
-| `verification-heavy` | checks (tsc/eslint/test/build) run in at least half the projects |
-| `risk-calibrated` | revert/commit ratio < 10% on 20+ commits |
+| `orchestrator` | Task/Agent delegations ≥ 15 |
+| `verification-heavy` | checks (tsc/eslint/test/build) in ≥ half the projects |
+| `risk-calibrated` | revert/commit ratio < 10% over 20+ commits |
 
-These are descriptors, not grades. There's no "better" cognitive tag — they're meant to **start a conversation**, not to compare you to anyone else.
+These are descriptors, not grades. There is no "better" cognitive tag.
 
-**Cognitive narrative** — 4–6 sentences written by *your* Claude instance, constrained on six dimensions: **decomposition · verification · error handling · orchestration · risk · calibrated trust in AI**. Hard rules in the prompt: no proper names, evidence-based only, no hyperbole.
+**Cognitive narrative** — 4–6 sentences written by *your* Claude instance, constrained on six dimensions: *decomposition · verification · error handling · orchestration · risk · calibrated trust in AI*. Hard rules: no proper names, evidence-based only, no hyperbole.
 
-**AI relationship** — a single axis with two poles:
-- *executor-leaning*: you treat the model like a careful junior, with long structured prompts, file paths, numbered steps, acceptance criteria.
-- *symbient-leaning*: you think out loud with the model, short conversational turns, open questions, letting the model push back and shape the problem.
-Almost everyone is a mix and switches by context. We compute the split from prompt-level signals (length, structure, questions, lexical cues in EN and IT) and your own Claude writes 2-3 sentences about *when* you switch modes.
+**AI relationship** — a single continuous axis from *directing* (you treat the model like a careful junior with long structured prompts) to *co-thinking* (you think out loud, short conversational turns, open questions). The midpoint of the axis is co-construction: using the model to define the problem, not just execute it. The split is computed from prompt-level signals in EN and IT; your own Claude writes 2–3 sentences about *when* you switch modes.
 
-**Groundedness check** — before submission we run a small deterministic check on the prose fields (`summary`, `cognitive narrative`, `trajectory narrative`, per-project `did`, `why representative`, `domain`, `principles adopted`). For every verifiable anchor in the prose — a number, a technology name, a type tag, a year-month — we check that it exists in the structured data the prose was generated from. The score is the percentage of anchors with a match (`92%` = "9 anchors in 10 trace back to your logs"). If the score is below 60% the submission is blocked; you can re-generate the profile or pass `--force` if you have a reason. Visible to you locally before submit, and stored next to the profile so Play New can see it too.
+**Trajectory** — what changed strategically over the window:
+- *Behavioral shifts*: four metrics (decomposition, delegation, research:mutation, verification) measured on the early vs late half. When they move, there's an apprenticeship.
+- *Topic clusters*: web queries grouped by theme, by quarter.
+- *New vocabulary*: words that appear only in the late half and recur across multiple distinct prompts.
+- *Principles codified*: lines you added to your own CLAUDE.md / README over time.
 
-**Trajectory** — what changed strategically/culturally over the window, from four sources:
-- **Behavioral shifts**: same four metrics (decomposition, delegation, research:mutation, verification) measured on the early vs late half of the window. When they move, there's an apprenticeship.
-- **Topic clusters**: web queries grouped by theme (agent architecture, design, data, AI patterns, …) and ordered by quarter. The cultural reading list.
-- **New vocabulary**: words that appear only in the late half and recur across multiple distinct prompts. One-offs are filtered out.
-- **Principles codified**: lines the candidate added to their own CLAUDE.md / README over time — the rules they wrote for their future self and their agent.
+**Groundedness check** — before submission we extract verifiable anchors from the prose (numbers, technology names, type tags, year-months) and check they exist in the structured data the prose came from. The score is the percentage with a match. Below 60% the submit is blocked; you can regenerate or pass `--force`.
 
-The reference we leaned on (the only one): [claude-session-analyzer](https://github.com/lucemia/claude-session-analyzer) by lucemia, for the Research:Mutation idea and the thinking-signature length as a depth proxy.
+The one external reference: [claude-session-analyzer](https://github.com/lucemia/claude-session-analyzer) by lucemia, for the Research:Mutation idea.
 
-### What this is not
+### What this is *not*
 
-- **Not a personality test.** No Big Five, no MBTI, no DISC. Logs are not psychology.
-- **Not automatic scoring or ranking.** No "fit score", no leaderboard. A human reads each profile.
-- **Not a performance prediction.** Past patterns don't determine future outcomes.
-- **Not a comparison between candidates.** Each profile stands on its own.
+- Not a personality test. No Big Five, no MBTI, no DISC.
+- Not automatic scoring or ranking. A human reads each profile.
+- Not a performance prediction.
+- Not a comparison between candidates.
 
-### What this does not replace
+### What it does *not* replace
 
-A profile is a starting point. It does not replace:
-
-- **A real conversation.** A 30-minute interview tells you more than any log can.
-- **A real meeting.** Humans deciding about humans.
+A profile is a starting point. It does not replace a real conversation, or a real meeting between humans deciding about humans.
 
 ### Limits, owned
 
-- **Sample bias.** You decide which projects we see. The tool can't tell what's missing.
-- **Tool bias.** Solo-work logs mostly show execution. Leadership, mentoring, pair-working with humans — invisible here.
-- **Threshold bias.** Our cutoffs are empirical, not validated against a large population. We will refine them as more applications come in.
-- **LLM bias.** The narrative is written by a model that has its own patterns. The prompt constrains it but does not make it neutral.
+- *Sample bias.* You decide which projects we see.
+- *Tool bias.* Solo-work logs show execution; leadership and pair-work are invisible here.
+- *Threshold bias.* Cutoffs are empirical, not validated against a large population.
+- *LLM bias.* The narrative is written by a model with its own patterns. The prompt constrains it but doesn't make it neutral.
 
-If you spot a way to make this less biased, less grade-shaped, more useful: [open an issue](https://github.com/Play-New/apply-new/issues). We'd rather get this right than ship something clever.
+If you spot a way to make this less biased or more useful, [open an issue](https://github.com/Play-New/apply-new/issues).
+
+## Purpose, policy, AI Act
+
+Apply New helps us understand *how you work with AI*, to match you with the right project. **The decision is human** — the AI generates the profile, it does not score or rank candidates.
+
+- **Legal basis (GDPR Art. 6(1)(a)):** explicit consent. You run `apply-new submit --yes` knowing what is sent.
+- **Retention:** while there's active interest, or up to 12 months. You can ask for earlier deletion at any time.
+- **Your rights:** access, rectification, erasure, portability, objection, restriction — write to `hey@playnew.com`. Your `candidate.json` is already a copy.
+- **EU AI Act (2024/1689) Annex III §4(a):** systems used to "analyse and filter job applications and evaluate candidates" are classified as high-risk. We treat Apply New as such — transparency (this README + open source), human oversight (no automated decision), disclosure (you're using an AI tool), data governance (logs stay local).
+
+Full policy in [PRIVACY.md](PRIVACY.md). If you'd rather not use the tool, write to `hey@playnew.com` for a no-tool conversation.
 
 ## Tests
 
