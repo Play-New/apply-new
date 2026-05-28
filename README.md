@@ -109,8 +109,6 @@ These are descriptors, not grades. There is no "better" cognitive tag.
 
 **Groundedness check** — before submission we extract verifiable anchors from the prose (numbers, technology names, type tags, year-months) and check they exist in the structured data the prose came from. The score is the percentage with a match. Below 60% the submit is blocked; you can regenerate or pass `--force`.
 
-The one external reference: [claude-session-analyzer](https://github.com/lucemia/claude-session-analyzer) by lucemia, for the Research:Mutation idea.
-
 ### What this is *not*
 
 - Not a personality test. No Big Five, no MBTI, no DISC.
@@ -147,6 +145,10 @@ Full policy in [PRIVACY.md](PRIVACY.md). If you'd rather not use the tool, reach
 ```
 npm test
 ```
+
+## Acknowledgments
+
+The Research:Mutation ratio idea is borrowed from [claude-session-analyzer](https://github.com/lucemia/claude-session-analyzer) by lucemia.
 
 ## License
 
