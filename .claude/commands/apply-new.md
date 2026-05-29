@@ -69,7 +69,17 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
 
    **Question 1 — Representative projects.** State the four that were auto-selected with their repoLabel ("flatmates-platform — creator intelligence platform", etc.) and ask if any should be swapped for one from the inventory. After their answer, edit `candidate.json` if needed.
 
-   **Question 2 — Artifacts (optional).** Ask if they want to attach anything to a project: a deploy URL, repo URL, PR link, or screenshot path. They decide the confidentiality boundary — never push them to attach.
+   **Question 2 — Artifacts (optional).** Artifacts MUST belong to the specific project they are attached to. Do NOT pick URLs from the candidate's `learningTopics` or recent web searches — those are research links, not artifacts. Go through the four representative projects ONE BY ONE, repoLabel by repoLabel:
+
+   - For each project, name it ("for *flatmates-platform* — the creator intelligence platform — do you have a deploy URL, repo, PR or screenshot that shows THIS specific project?") and wait for the candidate's reply.
+   - If they say no for that project, move on to the next. Skipping is fine.
+   - If they offer a URL, sanity-check it against the project domain you described. If it doesn't seem to match (e.g. they give a personal site URL for a creator platform), ask before attaching.
+   - Never invent or guess an artifact. Confidentiality boundary stays with the candidate — never push to attach.
+
+   When updating `candidate.json`, write the artifact under the SAME project id:
+   ```json
+   { "id": "p1", "artifact": { "type": "url", "url": "...", "label": "..." } }
+   ```
 
    **Question 3 — New vocabulary review.** Read the list of words you picked for `vocabulary_adopted` aloud with them. Flag any borderline tokens (researcher / framework / library names are signal; client / colleague / brand names are not — distinguishing automatically is hard so you mention them, not pre-decide). Ask if there's anything they'd rather not surface. Edit `candidate.json` and re-render `profile.md` if needed.
 
