@@ -105,6 +105,14 @@ These are descriptors, not grades. There is no "better" cognitive tag.
 
 **AI relationship** — a single continuous axis from *directing* (you treat the model like a careful junior with long structured prompts) to *co-thinking* (you think out loud, short conversational turns, open questions). The midpoint of the axis is co-construction: using the model to define the problem, not just execute it. The split is computed from prompt-level signals in EN and IT; your own Claude writes 2–3 sentences about *when* you switch modes.
 
+**Agentic literacy** — how fluent you are in the agentic stack, on three axes:
+
+- *Uses* — sub-agent delegations, task-tracking events, slash commands (built-in vs custom), MCP servers (public vs custom).
+- *Builds* — skills, commands, agents, hooks you've authored, plus `CLAUDE.md` files you maintain. Distinguishes *uses AI* from *builds with AI*.
+- *Designs* — `ExitPlanMode`, `TodoWrite`, `AskUserQuestion` invocations. Captures planning style (plans-first vs track-while-running).
+
+Privacy rule: **only counts, never names.** A custom MCP server, a custom skill, or a custom slash command can carry a client or company name. We classify built-in tools and public MCPs via a small whitelist and count everything else as *custom* — without ever exposing what it's called.
+
 **Trajectory** — what changed strategically over the window:
 - *Behavioral shifts*: four metrics (decomposition, delegation, research:mutation, verification) measured on the early vs late half. When they move, there's an apprenticeship.
 - *Topic clusters*: web queries grouped by theme, by quarter.
