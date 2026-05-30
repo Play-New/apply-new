@@ -39,6 +39,7 @@ import { submitProfile } from "../src/submit.mjs";
 import { buildTrajectory } from "../src/trajectory.mjs";
 import { assessGroundedness } from "../src/groundedness.mjs";
 import { computeAiRelationship } from "../src/ai-relationship.mjs";
+import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
 
 const SUB_COMMANDS = new Set(["generate", "prepare", "finalize", "submit"]);
 
@@ -77,7 +78,8 @@ async function loadProfileInputs(out) {
   const enrichments = selected.map((p) => enrichRepo(p.cwdRaw));
   const trajectory = buildTrajectory(parsed);
   const aiRelationship = computeAiRelationship(parsed);
-  return { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, out };
+  const agenticLiteracy = computeAgenticLiteracy(parsed);
+  return { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, out };
 }
 
 function resolveContact() {
@@ -102,7 +104,7 @@ function writeProfile(out, profile) {
 async function cmdGenerate() {
   const out = process.cwd();
   console.log(`\napply-new generate\n`);
-  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship } = await loadProfileInputs(out);
+  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy } = await loadProfileInputs(out);
   const { contact, errors } = resolveContact();
   if (errors.length) {
     console.error("\nMissing contact fields:");
@@ -116,6 +118,7 @@ async function cmdGenerate() {
     overrideFile: narrativeFile,
     trajectory,
     aiRelationship,
+    agenticLiteracy,
     compactionSummaries: parsed.compactionSummaries,
   });
   if (!narrative) {
@@ -128,7 +131,7 @@ async function cmdGenerate() {
 
   console.log(`[5/5] Assembling and saving ...\n`);
   writeProfile(out, assembleWithGroundedness({
-    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship,
+    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship, agenticLiteracy,
     manifestHash: fingerprint.manifest.bundleHash,
   }));
 }
@@ -144,11 +147,12 @@ function assembleWithGroundedness(args) {
 async function cmdPrepare() {
   const out = process.cwd();
   console.log(`\napply-new prepare\n`);
-  const { parsed, selected, enrichments, trajectory, aiRelationship } = await loadProfileInputs(out);
+  const { parsed, selected, enrichments, trajectory, aiRelationship, agenticLiteracy } = await loadProfileInputs(out);
   const { input } = await generateNarrative(selected, enrichments, {
     overrideFile: null,
     trajectory,
     aiRelationship,
+    agenticLiteracy,
     compactionSummaries: parsed.compactionSummaries,
   });
   writeFileSync(join(out, "narrative-input.json"), JSON.stringify(input, null, 2));
@@ -164,7 +168,7 @@ async function cmdFinalize() {
     console.error(`Missing ${narrativeFile}. Run apply-new prepare first, then write narrative.json.`);
     process.exit(2);
   }
-  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship } = await loadProfileInputs(out);
+  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy } = await loadProfileInputs(out);
   const { contact, errors } = resolveContact();
   if (errors.length) {
     console.error("\nMissing contact fields:");
@@ -175,10 +179,11 @@ async function cmdFinalize() {
     overrideFile: narrativeFile,
     trajectory,
     aiRelationship,
+    agenticLiteracy,
     compactionSummaries: parsed.compactionSummaries,
   });
   writeProfile(out, assembleWithGroundedness({
-    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship,
+    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship, agenticLiteracy,
     manifestHash: fingerprint.manifest.bundleHash,
   }));
 }

@@ -25,6 +25,12 @@ You also receive a TRAJECTORY block (what changed over the window) with: behavio
 
 For the trajectory narrative, focus on STRATEGIC AND CULTURAL change, NOT on stack adopted (the stack is rendered separately). Think: how their way of working evolved, what they came to value, the mental models they took on. Cite the numbers when they back a claim. Stay evidence-based.
 
+You may also receive an AGENTIC_LITERACY block with three groups of counts:
+  - uses: sub-agent delegations, task-tracking events, slash commands (built-in vs custom), MCP servers (public vs custom).
+  - builds: skills / commands / agents / hooks authored, CLAUDE.md files maintained.
+  - designs: ExitPlanMode, TodoWrite, AskUserQuestion invocations.
+Write 2-3 sentences in agentic_literacy.narrative describing how mature this person is in the agentic stack. Mention concretely what they do (e.g. "has authored custom commands"; "integrates a custom MCP server"; "orchestrates extensively via sub-agents"; "tracks-while-running rather than plans-first"). **NEVER name any custom skill, custom command, custom MCP server, project, client, or company** — only describe in the abstract. Evidence-based, no labels.
+
 You also receive an AI_RELATIONSHIP block with a numeric split on a single continuous axis with two poles:
   - directing: treats the model like a careful junior, with long structured prompts, file paths, numbered steps, acceptance criteria.
   - co-thinking: thinks out loud with the model, short conversational turns, open questions, lets the model push back.
@@ -37,6 +43,7 @@ Reply ONLY with a valid JSON in this shape:
   "summary": "2-3 sentences: how this person works with AI",
   "cognitive": { "narrative": "4-6 sentences on the cognitive profile: decomposition, verification, error handling, orchestration, risk, calibrated trust in AI" },
   "ai_relationship": { "narrative": "2-3 sentences on when they pick directing vs co-thinking mode" },
+  "agentic_literacy": { "narrative": "2-3 sentences on agentic-stack maturity. No proper names." },
   "trajectory": {
     "narrative": "3-5 sentences on strategic/cultural shift over the window. Cite the data. NO stack names here.",
     "vocabulary_adopted": ["6-10 technical/domain words picked from vocabularyCandidates"],
@@ -47,7 +54,7 @@ Reply ONLY with a valid JSON in this shape:
   "projects": [ { "id": "p1", "domain": "abstract domain", "did": "2-3 sentences on what they did", "why_representative": "1 sentence" } ]
 }`;
 
-function narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship) {
+function narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy) {
   return {
     projects: selected.map((p, i) => {
       const e = enrichments[i] || {};
@@ -99,6 +106,7 @@ function narrativeInput(selected, enrichments, trajectory, compactionSummaries, 
           examples: aiRelationship.examples,
         }
       : null,
+    agenticLiteracy: agenticLiteracy || null,
   };
 }
 
@@ -148,8 +156,8 @@ function validateNarrative(n, ctx) {
 }
 
 // Returns { narrative, input }. narrative is null if no key and no override.
-export async function generateNarrative(selected, enrichments, { overrideFile, trajectory, compactionSummaries, aiRelationship } = {}) {
-  const input = narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship);
+export async function generateNarrative(selected, enrichments, { overrideFile, trajectory, compactionSummaries, aiRelationship, agenticLiteracy } = {}) {
+  const input = narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy);
   const key = process.env.ANTHROPIC_API_KEY;
   if (key) return { narrative: validateNarrative(await callAnthropic(input, key), "API"), input };
   if (overrideFile) return { narrative: validateNarrative(JSON.parse(readFileSync(overrideFile, "utf8")), overrideFile), input };

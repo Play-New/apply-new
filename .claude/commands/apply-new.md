@@ -37,6 +37,7 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
    {
      "summary": "2-3 sentences: how this person works with AI.",
      "cognitive": { "narrative": "4-6 sentences: decomposition, verification, error handling, orchestration, risk, calibrated trust in AI." },
+     "agentic_literacy": { "narrative": "2-3 sentences on agentic-stack maturity. NO custom skill / MCP / project / client names. Describe in the abstract: 'has authored custom commands', 'integrates a custom MCP server', 'orchestrates extensively through sub-agents', etc." },
      "trajectory": {
        "narrative": "3-5 sentences on STRATEGIC and CULTURAL change over the window. Cite the data when it backs a claim. NO stack names here — those go in the separate stack section.",
        "vocabulary_adopted": ["6-10 technical/domain words picked from vocabularyCandidates (skip common verbs/adverbs)"],

@@ -74,7 +74,7 @@ function cognitiveTags(projects, fingerprint) {
 
 // --- assemble ----------------------------------------------------------------
 
-export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory, groundedness, aiRelationship }) {
+export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory, groundedness, aiRelationship, agenticLiteracy }) {
   const froms = projects.map((p) => p.from).filter(Boolean).sort();
   const tos = projects.map((p) => p.to).filter(Boolean).sort();
   const selected = projects.filter((p) => p.selected);
@@ -123,6 +123,12 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
           directing: aiRelationship.directing,
           coThinking: aiRelationship.coThinking,
           narrative: narrative?.ai_relationship?.narrative || null,
+        }
+      : null,
+    agenticLiteracy: agenticLiteracy
+      ? {
+          ...agenticLiteracy,
+          narrative: narrative?.agentic_literacy?.narrative || null,
         }
       : null,
     trajectory: trajectory
@@ -191,6 +197,29 @@ export function renderMarkdown(p) {
     L.push(`\n## How they work with the AI`);
     L.push(`${p.aiRelationship.directing}% directing · ${p.aiRelationship.coThinking}% co-thinking · ${p.aiRelationship.mode}`);
     if (p.aiRelationship.narrative) L.push(p.aiRelationship.narrative);
+  }
+
+  if (p.agenticLiteracy) {
+    const a = p.agenticLiteracy;
+    L.push(`\n## Agentic literacy`);
+    L.push(`Uses`);
+    L.push(`- Sub-agent delegations: ${a.uses.subagentDelegations}`);
+    L.push(`- Task tracking events: ${a.uses.taskTrackingEvents}`);
+    L.push(`- Built-in slash commands invoked: ${a.uses.builtinSlashInvocations}`);
+    L.push(`- Custom skills/commands: ${a.uses.customSkillsCommands.distinct} distinct, ${a.uses.customSkillsCommands.invocations} invocations`);
+    L.push(`- Public MCP servers: ${a.uses.publicMcp.servers} · ${a.uses.publicMcp.calls} calls`);
+    L.push(`- Custom MCP servers: ${a.uses.customMcp.servers} · ${a.uses.customMcp.tools} tools · ${a.uses.customMcp.calls} calls`);
+    L.push(`\nBuilds`);
+    L.push(`- Skills authored: ${a.builds.skillsAuthored}`);
+    L.push(`- Commands authored: ${a.builds.commandsAuthored}`);
+    L.push(`- Agents authored: ${a.builds.agentsAuthored}`);
+    L.push(`- Hooks edited: ${a.builds.hooksEdited}`);
+    L.push(`- Project memory files (CLAUDE.md): ${a.builds.projectMemoryFiles}`);
+    L.push(`\nDesigns`);
+    L.push(`- Plans-first (ExitPlanMode): ${a.designs.plansFirst}`);
+    L.push(`- Subtask tracking (TodoWrite): ${a.designs.subtaskTracking}`);
+    L.push(`- Clarifies (AskUserQuestion): ${a.designs.clarifies}`);
+    if (a.narrative) L.push(`\n${a.narrative}`);
   }
 
   // Trajectory: what changed strategically over the window. Numbers first, then
