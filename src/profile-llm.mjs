@@ -25,6 +25,8 @@ You also receive a TRAJECTORY block (what changed over the window) with: behavio
 
 For the trajectory narrative, focus on STRATEGIC AND CULTURAL change, NOT on stack adopted (the stack is rendered separately). Think: how their way of working evolved, what they came to value, the mental models they took on. Cite the numbers when they back a claim. Stay evidence-based.
 
+You may also receive a PRACTICE_INTENSITY block with active-days ratio, median sessions per active day, median session depth, longest streak, peak day, and pre-classified cadence/sessionShape strings. Write 1-2 sentences in intensity.narrative describing how deeply Claude is embedded in the candidate's workflow (e.g. "daily driver with frequent multi-day streaks", "occasional, short bursts on specific tasks"). Evidence-based, no labels.
+
 You may also receive an AGENTIC_LITERACY block with three groups of counts:
   - uses: sub-agent delegations, task-tracking events, slash commands (built-in vs custom), MCP servers (public vs custom).
   - builds: skills / commands / agents / hooks authored, CLAUDE.md files maintained.
@@ -44,6 +46,7 @@ Reply ONLY with a valid JSON in this shape:
   "cognitive": { "narrative": "4-6 sentences on the cognitive profile: decomposition, verification, error handling, orchestration, risk, calibrated trust in AI" },
   "ai_relationship": { "narrative": "2-3 sentences on when they pick directing vs co-thinking mode" },
   "agentic_literacy": { "narrative": "2-3 sentences on agentic-stack maturity. No proper names." },
+  "intensity": { "narrative": "1-2 sentences on how deeply Claude is embedded in their daily workflow." },
   "trajectory": {
     "narrative": "3-5 sentences on strategic/cultural shift over the window. Cite the data. NO stack names here.",
     "vocabulary_adopted": ["6-10 technical/domain words picked from vocabularyCandidates"],
@@ -54,7 +57,25 @@ Reply ONLY with a valid JSON in this shape:
   "projects": [ { "id": "p1", "domain": "abstract domain", "did": "2-3 sentences on what they did", "why_representative": "1 sentence" } ]
 }`;
 
-function narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy) {
+// Scrub probable proper nouns from the prompt samples we hand to the model
+// as evidence. The LLM has a hard anti-naming rule but we don't rely on
+// soft constraints alone: replace capitalised tokens (not at sentence start)
+// with a generic marker. False positives are acceptable, false negatives are
+// the leak risk.
+function scrubProperNouns(text) {
+  if (!text) return text;
+  return text
+    .replace(/(?<!^|[.!?]\s|\n)\b([A-ZÀ-Ý][a-zà-ÿ]{2,})(?!\.\w)/g, "⟨name⟩");
+}
+function scrubExamples(examples) {
+  if (!examples) return examples;
+  return {
+    directing: (examples.directing ?? []).map(scrubProperNouns),
+    coThinking: (examples.coThinking ?? []).map(scrubProperNouns),
+  };
+}
+
+function narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity) {
   return {
     projects: selected.map((p, i) => {
       const e = enrichments[i] || {};
@@ -103,10 +124,11 @@ function narrativeInput(selected, enrichments, trajectory, compactionSummaries, 
           directing: aiRelationship.directing,
           coThinking: aiRelationship.coThinking,
           sampledPrompts: aiRelationship.sampledPrompts,
-          examples: aiRelationship.examples,
+          examples: scrubExamples(aiRelationship.examples),
         }
       : null,
     agenticLiteracy: agenticLiteracy || null,
+    intensity: intensity || null,
   };
 }
 
@@ -156,8 +178,8 @@ function validateNarrative(n, ctx) {
 }
 
 // Returns { narrative, input }. narrative is null if no key and no override.
-export async function generateNarrative(selected, enrichments, { overrideFile, trajectory, compactionSummaries, aiRelationship, agenticLiteracy } = {}) {
-  const input = narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy);
+export async function generateNarrative(selected, enrichments, { overrideFile, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity } = {}) {
+  const input = narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity);
   const key = process.env.ANTHROPIC_API_KEY;
   if (key) return { narrative: validateNarrative(await callAnthropic(input, key), "API"), input };
   if (overrideFile) return { narrative: validateNarrative(JSON.parse(readFileSync(overrideFile, "utf8")), overrideFile), input };

@@ -74,7 +74,7 @@ function cognitiveTags(projects, fingerprint) {
 
 // --- assemble ----------------------------------------------------------------
 
-export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory, groundedness, aiRelationship, agenticLiteracy }) {
+export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory, groundedness, aiRelationship, agenticLiteracy, intensity }) {
   const froms = projects.map((p) => p.from).filter(Boolean).sort();
   const tos = projects.map((p) => p.to).filter(Boolean).sort();
   const selected = projects.filter((p) => p.selected);
@@ -130,6 +130,9 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
           ...agenticLiteracy,
           narrative: narrative?.agentic_literacy?.narrative || null,
         }
+      : null,
+    intensity: intensity
+      ? { ...intensity, narrative: narrative?.intensity?.narrative || null }
       : null,
     trajectory: trajectory
       ? {
@@ -197,6 +200,18 @@ export function renderMarkdown(p) {
     L.push(`\n## How they work with the AI`);
     L.push(`${p.aiRelationship.directing}% directing · ${p.aiRelationship.coThinking}% co-thinking · ${p.aiRelationship.mode}`);
     if (p.aiRelationship.narrative) L.push(p.aiRelationship.narrative);
+  }
+
+  if (p.intensity) {
+    const i = p.intensity;
+    L.push(`\n## Practice intensity`);
+    L.push(`- Active days: ${i.activeDays} / ${i.observedDays} (${Math.round(i.activeDaysRatio * 100)}%)`);
+    L.push(`- Median sessions per active day: ${i.medianSessionsPerActiveDay}`);
+    L.push(`- Median session depth: ${i.medianSessionToolCalls} tool calls`);
+    L.push(`- Longest streak: ${i.longestStreak} consecutive days`);
+    L.push(`- Peak day: ${i.peakDayToolCalls} tool calls`);
+    L.push(`Cadence: ${i.cadence} · ${i.sessionShape}`);
+    if (i.narrative) L.push(`\n${i.narrative}`);
   }
 
   if (p.agenticLiteracy) {

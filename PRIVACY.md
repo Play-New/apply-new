@@ -19,7 +19,7 @@ Contact: [playnew.com](https://playnew.com)
 When you run `apply-new submit --yes`, the following is transmitted:
 
 - **Contact fields you typed:** first name, email, city, status (`freelance` / `employed` / `student` / `looking`).
-- **A `playnew-profile/v1` JSON** containing: time window, session and product counts, per representative project (abstract domain description, type tags, technology stack, signals like commits/reverts/checks), cognitive tags (e.g. *research-first*), a short narrative written by your own Claude instance, a learning trajectory block, a list of other projects in inventory.
+- **A `playnew-profile/v1` JSON** containing: time window, session and product counts, per representative project (abstract domain description, type tags, technology stack, signals like commits/reverts/checks), cognitive tags (e.g. *research-first*), a short narrative written by your own Claude instance, a learning trajectory block (behavioral shifts, topic clusters, vocabulary adopted, principles codified), an AI-relationship axis (*directing* ↔ *co-thinking* split), an agentic-literacy block (counts of how you use / build / design with the agentic stack — never names), a practice-intensity block (how deeply Claude is embedded in your daily workflow), and a list of other projects in inventory.
 - **Opt-in artifacts** you explicitly attach (a deploy URL, a repo URL, a PR link, a screenshot — your choice, never required).
 
 What we **never** collect: client names, product names, person names, repository names, your code, your raw logs.
@@ -63,7 +63,7 @@ You have the right to:
 
 Under EU Regulation 2024/1689 (the AI Act), Annex III §4(a), AI systems used to "analyse and filter job applications and evaluate candidates" are classified as **high-risk**. Apply New is treated as such. The obligations we take on:
 
-- **Transparency.** This file and the [README](README.md) describe in plain terms what the tool measures, how the tags are derived, and what the model is asked to do. The source code is public on GitHub.
+- **Transparency.** This file and the [README](README.md) describe in plain terms what the tool measures, how the tags are derived, and what the model is asked to do — including the agentic-literacy counts (built-in vs custom, with custom names never exposed), the AI-relationship axis, the trajectory shifts, and the practice-intensity signals. The source code is public on GitHub.
 - **Human oversight.** No automated decision is made about you. A person at Play New reads each profile and decides whether to follow up. The AI generates the profile and computes screening metrics; it does not rank, score against others, or filter candidates.
 - **Disclosure.** You are interacting with an AI tool. The narrative parts of your profile (summary, cognitive narrative, trajectory narrative, per-project descriptions) are model-generated.
 - **Data governance.** Raw logs stay on your machine. Only a redacted, consented subset is transmitted, with declared retention. Storage is in the EU.

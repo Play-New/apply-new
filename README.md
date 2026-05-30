@@ -105,6 +105,8 @@ These are descriptors, not grades. There is no "better" cognitive tag.
 
 **AI relationship** — a single continuous axis from *directing* (you treat the model like a careful junior with long structured prompts) to *co-thinking* (you think out loud, short conversational turns, open questions). The midpoint of the axis is co-construction: using the model to define the problem, not just execute it. The split is computed from prompt-level signals in EN and IT; your own Claude writes 2–3 sentences about *when* you switch modes.
 
+**Practice intensity** — how deeply Claude is embedded in your daily workflow: active-days ratio over the observed window, median sessions per active day, median session depth (tool calls), longest consecutive-day streak, peak day. Captures the difference between *daily driver, deep sessions* and *occasional, short bursts on specific tasks*.
+
 **Agentic literacy** — how fluent you are in the agentic stack, on three axes:
 
 - *Uses* — sub-agent delegations, task-tracking events, slash commands (built-in vs custom), MCP servers (public vs custom).

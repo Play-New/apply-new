@@ -135,6 +135,16 @@ export function readClaudeCode(root) {
       if (!s.firstTs || r.timestamp < s.firstTs) s.firstTs = r.timestamp;
       if (!s.lastTs || r.timestamp > s.lastTs) s.lastTs = r.timestamp;
     }
+    // Backfill cwd from later records: many session-opening records
+    // (permission-mode, file-history-snapshot, summaries) carry no cwd, so
+    // the first message wins only if it actually has one. Without this fix
+    // sessions cluster as "unknown".
+    if (!s.cwdRaw && r.cwd) {
+      s.cwdRaw = r.cwd;
+      s.cwdRedacted = redactText(r.cwd);
+      s.projectLabel = `project-${shortHash(r.cwd)}`;
+    }
+    if (!s.gitBranch && r.gitBranch) s.gitBranch = r.gitBranch;
     if (r.uuid) s.chain.push({ uuid: r.uuid, parentUuid: r.parentUuid ?? null, ts: r.timestamp });
 
     if ((r.type === "user" || r.type === "assistant") && r.message && typeof r.message === "object") {
