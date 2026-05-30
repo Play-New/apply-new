@@ -1,6 +1,6 @@
 # Apply New
 
-> `apply-new` — apply to Play New by showing how you actually work.
+> `apply-new`: apply to Play New by showing how you work.
 
 A CV is a list of what you did, formatted for keyword scans. For work that happens inside agent logs, it's the wrong surface. The signal we care about (how you decompose, how you verify, what you do when the model misunderstands) already exists in your Claude Code sessions. A resume can't see it.
 
