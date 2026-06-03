@@ -1,0 +1,225 @@
+// Pre-submit groundedness check.
+//
+// The profile mixes deterministic fields (numbers, tags, stack) with prose
+// fields written by the LLM (summary, cognitive narrative, trajectory
+// narrative, did, why_representative, domain, principles_adopted). The risk
+// is that the prose drifts from the data — claims numbers that aren't in the
+// logs, name a technology nobody touched, invent a behaviour.
+//
+// We don't try to be a fact-checker. We extract verifiable ANCHORS from the
+// prose (numbers, technology names, type tags, year-months) and check that
+// each anchor exists somewhere in the structured data the prose was generated
+// from. The score is the percentage of anchors supported.
+//
+// Designed to be transparent: every flagged anchor is shown to the candidate
+// before submission so they can re-generate or edit if something is off.
+
+// Stack tokens AND AI-tooling vocabulary. A narrative that says "Claude" or
+// "SDK" or "MCP" is referring to general AI/dev primitives that are part of
+// the trajectory even when not listed in a project's `tech` array. We treat
+// these as inherently grounded — the candidate is using them right now to
+// generate this profile.
+const TECH_NAMES = [
+  // Web / framework stack
+  "Supabase","Postgres","Inngest","Playwright","Tailwind","shadcn","Zod","Prisma","Next.js","React",
+  "Stripe","Drizzle","Brevo","Resend","Vercel","TypeScript","Python","Node","Vitest","Jest","ESLint",
+];
+
+// AI-tooling vocabulary — always considered grounded, since the candidate is
+// (by definition) using these tools to participate in Apply New.
+const AI_TOOLING = new Set([
+  "claude","claude code","claude.ai","anthropic","openai","gpt","gemini","codex",
+  "sdk","api","mcp","agent","agents","subagent","sub-agent","skill","skills",
+  "llm","llms","prompt","tool use","tool-use","reasoning","thinking","context window",
+]);
+
+const TYPE_TAGS = [
+  "product-build","audit-research","agent-tooling","static-site","ai-platform",
+  "data-migration","feature-work","testing","quality-gating","orchestrated","design-research","exploration",
+];
+
+const COGNITIVE_TAGS = [
+  "research-first","decomposer","orchestrator","verification-heavy","risk-calibrated",
+];
+
+// Extract candidate ANCHORS from a chunk of prose.
+function extractAnchors(text) {
+  if (!text || typeof text !== "string") return [];
+  const anchors = [];
+
+  // Numbers that look meaningful (>1 digit OR followed by a unit/word).
+  for (const m of text.matchAll(/\b\d{1,5}(?:[.,]\d+)?\b/g)) {
+    const n = Number(m[0].replace(",", "."));
+    if (Number.isFinite(n) && n >= 2) anchors.push({ kind: "number", value: n, raw: m[0] });
+  }
+
+  // Percentages.
+  for (const m of text.matchAll(/(\d{1,3})\s*%/g)) {
+    anchors.push({ kind: "percent", value: Number(m[1]) / 100, raw: m[0] });
+  }
+
+  // Year-months (2026-03, 2026-Q1).
+  for (const m of text.matchAll(/\b20\d{2}-(?:Q[1-4]|0?[1-9]|1[0-2])\b/g)) {
+    anchors.push({ kind: "period", value: m[0], raw: m[0] });
+  }
+
+  // Technology names — case-insensitive but anchored on word boundary.
+  // AI-tooling words are pre-grounded (a candidate using Apply New is using
+  // Claude / an SDK / an MCP server / agents by definition).
+  for (const t of TECH_NAMES) {
+    const re = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    if (re.test(text)) anchors.push({ kind: "tech", value: t.toLowerCase(), raw: t });
+  }
+  for (const t of AI_TOOLING) {
+    const re = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    if (re.test(text)) anchors.push({ kind: "ai-tooling", value: t, raw: t });
+  }
+
+  // Type tags & cognitive tags, only if they appear in prose form.
+  for (const t of [...TYPE_TAGS, ...COGNITIVE_TAGS]) {
+    if (text.toLowerCase().includes(t)) anchors.push({ kind: "tag", value: t, raw: t });
+  }
+
+  return anchors;
+}
+
+function collectSupportPool(profile) {
+  const numbers = new Set();
+  const periods = new Set();
+  const tech = new Set();
+  const tags = new Set();
+
+  const addNumber = (n) => {
+    if (n == null) return;
+    const v = Number(n);
+    if (Number.isFinite(v)) numbers.add(v);
+  };
+  const addText = (s) => {
+    if (!s) return;
+    for (const m of String(s).match(/\b20\d{2}-(?:Q[1-4]|0?[1-9]|1[0-2])\b/g) ?? []) periods.add(m);
+  };
+
+  // Top-level volume + window + authenticity
+  addNumber(profile?.volume?.sessions);
+  addNumber(profile?.volume?.products);
+  addNumber(profile?.volume?.instructions);
+  addNumber(profile?.authenticity?.score);
+  addText(profile?.window?.from);
+  addText(profile?.window?.to);
+
+  // Per project structured facts
+  for (const p of profile?.projects ?? []) {
+    addNumber(p.sessions);
+    addNumber(p?.landing?.commits);
+    addNumber(p?.landing?.reverts);
+    addNumber(p?.metrics?.researchToMutation);
+    addNumber(p?.metrics?.delegation);
+    addText(p?.span?.from);
+    addText(p?.span?.to);
+    for (const t of p.tech ?? []) for (const w of splitTech(t)) tech.add(w);
+    for (const t of p.type ?? []) tags.add(t);
+  }
+  for (const o of profile?.otherProjects ?? []) {
+    addNumber(o.sessions);
+    addText(o?.span?.from);
+    addText(o?.span?.to);
+    for (const t of o.type ?? []) tags.add(t);
+  }
+
+  for (const t of profile?.stackAdopted ?? []) for (const w of splitTech(t)) tech.add(w);
+  for (const t of profile?.cognitive?.tags ?? []) tags.add(t);
+
+  // Work distribution numbers (the narrative may quote any of them, raw or as %)
+  const dist = profile?.distribution;
+  if (dist) {
+    addNumber(dist.meanSessionsPerProduct);
+    addNumber(dist.medianSessionsPerProduct);
+    addNumber(dist.multiMonthProducts);
+    addNumber(dist.top3Share);
+    addNumber(Math.round(dist.top3Share * 100));
+    addNumber(dist.multiMonthShare);
+    addNumber(Math.round(dist.multiMonthShare * 100));
+  }
+
+  // Trajectory numbers
+  const s = profile?.trajectory?.shifts;
+  if (s?.deltas) for (const d of s.deltas) { addNumber(d.early); addNumber(d.late); }
+  if (s?.midpoint) addText(s.midpoint);
+  for (const q of profile?.trajectory?.topics ?? []) { addText(q.quarter); for (const th of q.themes ?? []) addNumber(th.count); }
+  for (const pr of profile?.trajectory?.principlesAdopted ?? []) addText(pr.when);
+
+  return { numbers, periods, tech, tags };
+}
+
+// "Supabase/Postgres" or "Playwright (E2E)" should make both "supabase",
+// "postgres", "playwright" individually grounded.
+function splitTech(label) {
+  return String(label)
+    .toLowerCase()
+    .split(/[\s/(),]+/)
+    .map((s) => s.replace(/[^a-z.+-]/g, ""))
+    .filter((s) => s.length >= 3);
+}
+
+// Numbers in prose match if they equal a structured number or are within 5%
+// of one (the LLM may round "153 commits" as "around 150").
+function numberMatches(n, numberSet) {
+  if (numberSet.has(n)) return true;
+  for (const v of numberSet) {
+    if (v === 0 || n === 0) continue;
+    if (Math.abs((n - v) / v) <= 0.05) return true;
+  }
+  return false;
+}
+
+function classifyTextFields(profile) {
+  // Returns a list of { where, text } prose fields to verify.
+  const fields = [];
+  if (profile?.summary) fields.push({ where: "summary", text: profile.summary });
+  if (profile?.cognitive?.narrative) fields.push({ where: "cognitive.narrative", text: profile.cognitive.narrative });
+  if (profile?.trajectory?.narrative) fields.push({ where: "trajectory.narrative", text: profile.trajectory.narrative });
+  if (profile?.distribution?.narrative) fields.push({ where: "distribution.narrative", text: profile.distribution.narrative });
+  for (const p of profile?.projects ?? []) {
+    if (p.domain) fields.push({ where: `${p.id}.domain`, text: p.domain });
+    if (p.did) fields.push({ where: `${p.id}.did`, text: p.did });
+    if (p.whyRepresentative) fields.push({ where: `${p.id}.whyRepresentative`, text: p.whyRepresentative });
+  }
+  for (const pr of profile?.trajectory?.principlesAdopted ?? []) {
+    if (pr?.text) fields.push({ where: "trajectory.principles", text: pr.text });
+  }
+  return fields;
+}
+
+export function assessGroundedness(profile) {
+  const pool = collectSupportPool(profile);
+  const fields = classifyTextFields(profile);
+
+  let total = 0;
+  let supported = 0;
+  const anomalies = [];
+
+  for (const f of fields) {
+    const anchors = extractAnchors(f.text);
+    for (const a of anchors) {
+      total++;
+      let ok = false;
+      if (a.kind === "number" || a.kind === "percent") ok = numberMatches(a.value, pool.numbers);
+      else if (a.kind === "period") ok = pool.periods.has(a.value);
+      else if (a.kind === "tech") ok = pool.tech.has(a.value);
+      else if (a.kind === "tag") ok = pool.tags.has(a.value);
+      else if (a.kind === "ai-tooling") ok = true; // pre-grounded by definition
+      if (ok) supported++;
+      else anomalies.push({ where: f.where, anchor: a.raw, kind: a.kind });
+    }
+  }
+
+  // Soft floor: a profile with very few anchors should not be 0% just because
+  // there's nothing to check. If we found < 4 anchors total, score is "n/a".
+  const score = total >= 4 ? Math.round((supported / total) * 100) : null;
+  return {
+    score,
+    supported,
+    total,
+    anomalies: anomalies.slice(0, 12), // cap the surfaced ones
+  };
+}
