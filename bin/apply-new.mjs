@@ -125,6 +125,7 @@ async function cmdGenerate() {
     agenticLiteracy,
     intensity,
     distribution,
+    allProjects: projects,
     compactionSummaries: parsed.compactionSummaries,
   });
   if (!narrative) {
@@ -153,7 +154,7 @@ function assembleWithGroundedness(args) {
 async function cmdPrepare() {
   const out = process.cwd();
   console.log(`\napply-new prepare\n`);
-  const { parsed, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution } = await loadProfileInputs(out);
+  const { parsed, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution } = await loadProfileInputs(out);
   const { input } = await generateNarrative(selected, enrichments, {
     overrideFile: null,
     trajectory,
@@ -161,6 +162,7 @@ async function cmdPrepare() {
     agenticLiteracy,
     intensity,
     distribution,
+    allProjects: projects,
     compactionSummaries: parsed.compactionSummaries,
   });
   writeFileSync(join(out, "narrative-input.json"), JSON.stringify(input, null, 2));
@@ -190,6 +192,7 @@ async function cmdFinalize() {
     agenticLiteracy,
     intensity,
     distribution,
+    allProjects: projects,
     compactionSummaries: parsed.compactionSummaries,
   });
   writeProfile(out, assembleWithGroundedness({

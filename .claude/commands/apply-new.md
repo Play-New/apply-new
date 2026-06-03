@@ -35,7 +35,10 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
 4. **Write `narrative.json`** with exactly this shape:
    ```json
    {
-     "summary": "2-3 sentences: how this person works with AI.",
+     "summary": "2-3 sentences: WHAT this person works on (top domains) and HOW they work with AI.",
+     "domains": [
+       { "label": "abstract field of work (no proper names), derived from the domainEvidence array covering ALL products", "products": 1, "sessions": 1, "note": "1 short clause of evidence (optional)" }
+     ],
      "cognitive": { "narrative": "4-6 sentences: decomposition, verification, error handling, orchestration, risk, calibrated trust in AI." },
      "agentic_literacy": { "narrative": "2-3 sentences on agentic-stack maturity. NO custom skill / MCP / project / client names. Describe in the abstract: 'has authored custom commands', 'integrates a custom MCP server', 'orchestrates extensively through sub-agents', etc." },
      "ai_relationship": { "narrative": "2-3 sentences on WHEN they pick directing vs co-thinking mode (from the AI_RELATIONSHIP block)." },
@@ -60,6 +63,7 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
    - Evidence-based: claims supported by signals (areas, stack, landing, prompts, commits).
    - English, dry, readable. No emojis, no em dashes.
    - Length: summary ≤ 60 words; cognitive narrative ≤ 130 words; learning summary ≤ 40 words; ai_relationship / intensity / distribution narratives ≤ 50 words each; per-project domain ≤ 60 words; per-project `did` ≤ 60 words.
+   - Domains rollup: 3-5 entries. Assign every product in `domainEvidence` to exactly one domain; the summed `products` and `sessions` across domains must not exceed the profile totals (groundedness checks this). Labels abstract, counts only, never names.
 
 5. **Run finalize.** Execute:
    ```

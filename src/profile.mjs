@@ -93,6 +93,9 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
       instructions: projects.reduce((n, p) => n + p.userMessages, 0),
     },
     summary: narrative?.summary || null,
+    // Aggregate fields of work, derived by the LLM from per-product evidence.
+    // Counts, not names: each entry is { label, products, sessions, note? }.
+    domains: narrative?.domains || [],
     projects: selected.map((p, i) => ({
       id: `p${i + 1}`,
       // Repo label: the directory name of the candidate's own repo. Lets the
@@ -175,6 +178,14 @@ export function renderMarkdown(p) {
   );
   L.push(`Log consistency screen: ${p.authenticity.score}/100 (${p.authenticity.note})`);
   if (p.summary) L.push(`\n${p.summary}`);
+
+  if (p.domains?.length) {
+    L.push(`\n## Domains`);
+    for (const d of p.domains) {
+      const note = d.note ? ` — ${d.note}` : "";
+      L.push(`- **${d.label}** · ${d.products} products · ${d.sessions} sessions${note}`);
+    }
+  }
 
   L.push(`\n## Representative projects`);
   for (const pr of p.projects) {

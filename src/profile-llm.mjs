@@ -29,6 +29,8 @@ You may also receive a PRACTICE_INTENSITY block with active-days ratio, median s
 
 You may also receive a WORK_DISTRIBUTION block: products, sessions, mean/median sessions per product, top-3 concentration share, multi-month product share, and a pre-classified shape (portfolio / balanced / deep focus). Write 1-2 sentences in distribution.narrative on how this person spreads their work: many products each touched briefly (portfolio steering, direction across fronts) vs few products returned to repeatedly (sustained building, continuity). Say what this implies about how they engage. Neither pole is better; no judgement. The summary should also reflect this breadth-vs-depth shape in one clause.
 
+You may also receive a DOMAIN_EVIDENCE array covering ALL products (not just the selected ones), each with: type tags, sessions, span, stack, code areas, web-search topics. From it, derive 3-5 aggregate DOMAINS — the fields of work this person operates in (e.g. "talent and creator operations", "business intelligence and finance ops", "agentic platforms and tooling", "nonprofit / civic"). For each domain output: label (abstract, NO proper names), products (how many products fall in it), sessions (their summed sessions), note (optional, 1 short clause of evidence). Every product should be assigned to exactly one domain; products + sessions across domains must not exceed the totals. The summary must say WHAT this person works on (the top domains) as well as how they work.
+
 You may also receive an AGENTIC_LITERACY block with three groups of counts:
   - uses: sub-agent delegations, task-tracking events, slash commands (built-in vs custom), MCP servers (public vs custom).
   - builds: skills / commands / agents / hooks authored, CLAUDE.md files maintained.
@@ -44,7 +46,8 @@ The trajectory block also carries a vocabularyCandidates array: raw words that s
 
 Reply ONLY with a valid JSON in this shape:
 {
-  "summary": "2-3 sentences: how this person works with AI",
+  "summary": "2-3 sentences: what this person works on (top domains) and how they work with AI",
+  "domains": [ { "label": "abstract field of work, no proper names", "products": 0, "sessions": 0, "note": "1 short clause of evidence (optional)" } ],
   "cognitive": { "narrative": "4-6 sentences on the cognitive profile: decomposition, verification, error handling, orchestration, risk, calibrated trust in AI" },
   "ai_relationship": { "narrative": "2-3 sentences on when they pick directing vs co-thinking mode" },
   "agentic_literacy": { "narrative": "2-3 sentences on agentic-stack maturity. No proper names." },
@@ -78,8 +81,19 @@ function scrubExamples(examples) {
   };
 }
 
-function narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity, distribution) {
+function narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity, distribution, allProjects) {
   return {
+    // Compact per-product evidence across ALL products (not just the selected
+    // ones) so the model can derive the aggregate domains. Local-only input;
+    // the output side carries abstract labels and counts, never names.
+    domainEvidence: (allProjects ?? []).map((p) => ({
+      type: p.type,
+      sessions: p.sessions,
+      span: `${p.from}->${p.to}`,
+      tech: p.tech ?? [],
+      areas: Object.keys(p.topAreas ?? {}).slice(0, 6),
+      topics: (p.learningTopics ?? []).slice(0, 6),
+    })),
     projects: selected.map((p, i) => {
       const e = enrichments[i] || {};
       return {
@@ -156,13 +170,23 @@ async function callAnthropic(input, key) {
 // Light validation of the narrative shape. We don't want a malformed model
 // reply to silently sail into the profile — that's the worst kind of bug.
 // Throws with a precise pointer to the bad field. Tolerates extra keys.
-function validateNarrative(n, ctx) {
+export function validateNarrative(n, ctx) {
   const where = (p) => `narrative${ctx ? ` (${ctx})` : ""}: ${p}`;
   const str = (v) => typeof v === "string" && v.trim().length > 0;
   if (!n || typeof n !== "object") throw new Error(where("not an object"));
   if (!str(n.summary)) throw new Error(where("missing summary"));
   if (!n.cognitive || typeof n.cognitive !== "object") throw new Error(where("missing cognitive"));
   if (!str(n.cognitive.narrative)) throw new Error(where("missing cognitive.narrative"));
+  // domains is optional in older shapes; if present, it must be well-formed.
+  if (n.domains != null) {
+    if (!Array.isArray(n.domains)) throw new Error(where("domains not an array"));
+    for (const [i, d] of n.domains.entries()) {
+      if (!d || typeof d !== "object") throw new Error(where(`domains[${i}] not an object`));
+      if (!str(d.label)) throw new Error(where(`domains[${i}].label missing`));
+      if (!Number.isFinite(Number(d.products)) || Number(d.products) < 1) throw new Error(where(`domains[${i}].products must be a count >= 1`));
+      if (!Number.isFinite(Number(d.sessions)) || Number(d.sessions) < 1) throw new Error(where(`domains[${i}].sessions must be a count >= 1`));
+    }
+  }
   // trajectory is optional in older shapes; if present, it must be well-formed.
   if (n.trajectory != null) {
     if (typeof n.trajectory !== "object") throw new Error(where("trajectory not an object"));
@@ -182,8 +206,8 @@ function validateNarrative(n, ctx) {
 }
 
 // Returns { narrative, input }. narrative is null if no key and no override.
-export async function generateNarrative(selected, enrichments, { overrideFile, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity, distribution } = {}) {
-  const input = narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity, distribution);
+export async function generateNarrative(selected, enrichments, { overrideFile, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity, distribution, allProjects } = {}) {
+  const input = narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity, distribution, allProjects);
   const key = process.env.ANTHROPIC_API_KEY;
   if (key) return { narrative: validateNarrative(await callAnthropic(input, key), "API"), input };
   if (overrideFile) return { narrative: validateNarrative(JSON.parse(readFileSync(overrideFile, "utf8")), overrideFile), input };

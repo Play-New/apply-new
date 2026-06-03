@@ -129,6 +129,13 @@ function collectSupportPool(profile) {
   for (const t of profile?.stackAdopted ?? []) for (const w of splitTech(t)) tech.add(w);
   for (const t of profile?.cognitive?.tags ?? []) tags.add(t);
 
+  // Domains rollup counts (sum-checked separately in assessGroundedness; once
+  // they pass that check the prose may cite them)
+  for (const d of profile?.domains ?? []) {
+    addNumber(d.products);
+    addNumber(d.sessions);
+  }
+
   // Work distribution numbers (the narrative may quote any of them, raw or as %)
   const dist = profile?.distribution;
   if (dist) {
@@ -179,6 +186,9 @@ function classifyTextFields(profile) {
   if (profile?.cognitive?.narrative) fields.push({ where: "cognitive.narrative", text: profile.cognitive.narrative });
   if (profile?.trajectory?.narrative) fields.push({ where: "trajectory.narrative", text: profile.trajectory.narrative });
   if (profile?.distribution?.narrative) fields.push({ where: "distribution.narrative", text: profile.distribution.narrative });
+  for (const [i, d] of (profile?.domains ?? []).entries()) {
+    if (d?.note) fields.push({ where: `domains[${i}].note`, text: d.note });
+  }
   for (const p of profile?.projects ?? []) {
     if (p.domain) fields.push({ where: `${p.id}.domain`, text: p.domain });
     if (p.did) fields.push({ where: `${p.id}.did`, text: p.did });
@@ -211,6 +221,19 @@ export function assessGroundedness(profile) {
       if (ok) supported++;
       else anomalies.push({ where: f.where, anchor: a.raw, kind: a.kind });
     }
+  }
+
+  // Domains rollup: per-domain products/sessions are LLM claims. The sums must
+  // not exceed the deterministic totals — an excess is an invented count.
+  const domains = profile?.domains ?? [];
+  if (domains.length) {
+    const sumProducts = domains.reduce((n, d) => n + (Number(d.products) || 0), 0);
+    const sumSessions = domains.reduce((n, d) => n + (Number(d.sessions) || 0), 0);
+    total += 2;
+    if (sumProducts <= (profile?.volume?.products ?? 0)) supported++;
+    else anomalies.push({ where: "domains", anchor: `${sumProducts} products across domains`, kind: "number" });
+    if (sumSessions <= (profile?.volume?.sessions ?? 0)) supported++;
+    else anomalies.push({ where: "domains", anchor: `${sumSessions} sessions across domains`, kind: "number" });
   }
 
   // Soft floor: a profile with very few anchors should not be 0% just because
