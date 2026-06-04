@@ -19,7 +19,7 @@ claude
 > /apply-new
 ```
 
-The slash command asks for four contact fields (name, email, city, status), reads your Claude Code history, and lets your own Claude write a short profile about you. Two files come out: `profile.md` for humans, `candidate.json` for agents. Submission is a second step. You can keep the profile for yourself.
+The slash command asks for four contact fields (name, email, city, status), reads your Claude Code history, and lets your own Claude write a short profile about you. Two files come out in `out/`: `profile.md` for humans, `candidate.json` for agents. Submission is a second step. You can keep the profile for yourself.
 
 ```
 node bin/apply-new.mjs submit --yes
@@ -57,7 +57,7 @@ It doesn't replace a conversation, or a live task in our repo. The decision abou
 
 We collect the four contact fields you typed, the profile JSON, and any artifact you explicitly chose to attach. We don't see client names, product names, person names, your code, or your raw logs. The redaction runs on your machine before anything leaves it.
 
-Want it gone? Reach us via [playnew.com](https://playnew.com) and we delete your application and any attached artifacts. Locally, `profile.md` and `candidate.json` are plain files you can remove yourself.
+Want it gone? Reach us via [playnew.com](https://playnew.com) and we delete your application and any attached artifacts. Locally, everything the tool generated lives in the `out/` folder — delete it and it's gone.
 
 ## Policy
 
@@ -76,8 +76,8 @@ If you spot something we should change, [open an issue](https://github.com/Play-
 | | |
 |---|---|
 | `generate` *(default)* | full profile, locally |
-| `prepare` | only `narrative-input.json`, for writing the narrative manually |
-| `finalize --narrative-file narrative.json` | finalize after `prepare` |
+| `prepare` | only `out/narrative-input.json`, for writing the narrative manually |
+| `finalize --narrative-file out/narrative.json` | finalize after `prepare` |
 | `submit --yes` | send to Play New |
 
 All commands run as `node bin/apply-new.mjs <sub>` or as `apply-new <sub>` after `npm link`. Common flags: `--name`, `--email`, `--city`, `--status`, `--top N` (force the project count; default is adaptive 3–5), `--root <dir>`. Without Claude Code, set `ANTHROPIC_API_KEY` and the narrative goes through the API instead of your subscription.

@@ -50,6 +50,18 @@ test("slash command does not hardcode the representative-project count (it's ada
   );
 });
 
+test("slash command paths match the out/ folder bin actually writes to", () => {
+  // 5. Generated files moved from the repo root to out/; any doc still
+  //    telling the model to read/write the bare filename would make the
+  //    narrative step look in the wrong place.
+  const outDir = binSrc.match(/const OUT_DIR = "([^"]+)"/)?.[1];
+  assert.ok(outDir, "bin must declare OUT_DIR");
+  for (const f of ["narrative-input.json", "narrative.json", "candidate.json", "profile.md"]) {
+    assert.ok(command.includes(`\`${outDir}/${f}\``), `slash command must reference ${outDir}/${f}`);
+    assert.ok(!command.includes(`\`${f}\``), `slash command references ${f} without the ${outDir}/ prefix`);
+  }
+});
+
 test("example repoLabels in the slash command are fictional (acme-*)", () => {
   // Any italicised repo-style example must be an obviously fake name. A real
   // repoLabel here is a privacy leak in a public file.

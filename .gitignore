@@ -2,10 +2,14 @@ node_modules/
 *.bundle.json
 digest.json
 scratch-*.mjs
-candidate.json
-profile.md
-narrative*.json
 .DS_Store
+
+# Everything the tool generates lands in out/ — one folder, one rule.
+/out/
+# Legacy locations: older versions wrote the working files to the repo root.
+/candidate.json
+/profile.md
+/narrative*.json
 
 # Local Claude Code state (per-candidate); the slash command in
 # .claude/commands/apply-new.md stays tracked.

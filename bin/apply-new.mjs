@@ -5,10 +5,13 @@
 // Sub-commands (default: generate — save locally, no submit):
 //
 //   apply-new                      # = apply-new generate
-//   apply-new generate             # build profile.md + candidate.json locally
-//   apply-new prepare              # only emit narrative-input.json (no narrative)
-//   apply-new finalize             # finalize using --narrative-file narrative.json
-//   apply-new submit               # POST candidate.json to Play New intake
+//   apply-new generate             # build out/profile.md + out/candidate.json locally
+//   apply-new prepare              # only emit out/narrative-input.json (no narrative)
+//   apply-new finalize             # finalize using --narrative-file out/narrative.json
+//   apply-new submit               # POST out/candidate.json to Play New intake
+//
+// Everything generated lands in ./out — one folder to inspect, one to delete,
+// one line of .gitignore. Nothing is written to the repo root.
 //
 // Common flags:
 //   --root <dir>                   # logs root (default ~/.claude/projects)
@@ -26,7 +29,7 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { writeFileSync, existsSync, readFileSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { readClaudeCode } from "../src/adapters/claude-code.mjs";
 import { computeFingerprint } from "../src/fingerprint.mjs";
@@ -59,6 +62,15 @@ const flag = (n, d = null) => {
 };
 const has = (n) => argv.includes(`--${n}`);
 const tryGit = (k) => { try { return execSync(`git config ${k}`, { encoding: "utf8" }).trim() || null; } catch { return null; } };
+
+// Every generated file (narrative-input.json, narrative.json, candidate.json,
+// profile.md) lands in ./out — never in the repo root.
+const OUT_DIR = "out";
+const outDir = () => {
+  const out = join(process.cwd(), OUT_DIR);
+  mkdirSync(out, { recursive: true });
+  return out;
+};
 
 async function loadProfileInputs(out) {
   let root = flag("root", join(homedir(), ".claude", "projects"));
@@ -103,12 +115,12 @@ function writeProfile(out, profile) {
   const md = renderMarkdown(profile);
   writeFileSync(join(out, "profile.md"), md);
   console.log(md);
-  console.log(`Saved: candidate.json + profile.md`);
+  console.log(`Saved: ${OUT_DIR}/candidate.json + ${OUT_DIR}/profile.md`);
   console.log(`To submit to Play New when ready:  apply-new submit`);
 }
 
 async function cmdGenerate() {
-  const out = process.cwd();
+  const out = outDir();
   console.log(`\napply-new generate\n`);
   const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution } = await loadProfileInputs(out);
   const { contact, errors } = resolveContact();
@@ -133,8 +145,8 @@ async function cmdGenerate() {
   if (!narrative) {
     writeFileSync(join(out, "narrative-input.json"), JSON.stringify(input, null, 2));
     console.log(`      no narrative yet (no API key, no --narrative-file).`);
-    console.log(`      Inside Claude Code:  /apply-new   (writes narrative.json and finalizes)`);
-    console.log(`      Manual:  write narrative.json, then  apply-new finalize`);
+    console.log(`      Inside Claude Code:  /apply-new   (writes ${OUT_DIR}/narrative.json and finalizes)`);
+    console.log(`      Manual:  write ${OUT_DIR}/narrative.json, then  apply-new finalize`);
     return;
   }
 
@@ -154,7 +166,7 @@ function assembleWithGroundedness(args) {
 }
 
 async function cmdPrepare() {
-  const out = process.cwd();
+  const out = outDir();
   console.log(`\napply-new prepare\n`);
   const { parsed, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution } = await loadProfileInputs(out);
   const { input } = await generateNarrative(selected, enrichments, {
@@ -168,16 +180,16 @@ async function cmdPrepare() {
     compactionSummaries: parsed.compactionSummaries,
   });
   writeFileSync(join(out, "narrative-input.json"), JSON.stringify(input, null, 2));
-  console.log(`Wrote narrative-input.json.`);
-  console.log(`Next: write narrative.json (rules in the slash command), then  apply-new finalize`);
+  console.log(`Wrote ${OUT_DIR}/narrative-input.json.`);
+  console.log(`Next: write ${OUT_DIR}/narrative.json (rules in the slash command), then  apply-new finalize`);
 }
 
 async function cmdFinalize() {
-  const out = process.cwd();
+  const out = outDir();
   console.log(`\napply-new finalize\n`);
   const narrativeFile = flag("narrative-file", join(out, "narrative.json"));
   if (!existsSync(narrativeFile)) {
-    console.error(`Missing ${narrativeFile}. Run apply-new prepare first, then write narrative.json.`);
+    console.error(`Missing ${narrativeFile}. Run apply-new prepare first, then write ${OUT_DIR}/narrative.json.`);
     process.exit(2);
   }
   const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution } = await loadProfileInputs(out);
@@ -204,10 +216,15 @@ async function cmdFinalize() {
 }
 
 async function cmdSubmit() {
-  const out = process.cwd();
-  const profilePath = join(out, "candidate.json");
+  // Profiles live in ./out; fall back to the repo root for profiles
+  // generated by a version that still wrote there.
+  let profilePath = join(process.cwd(), OUT_DIR, "candidate.json");
+  if (!existsSync(profilePath) && existsSync(join(process.cwd(), "candidate.json"))) {
+    profilePath = join(process.cwd(), "candidate.json");
+    console.log(`(using ./candidate.json from an older run — new runs write to ${OUT_DIR}/)`);
+  }
   if (!existsSync(profilePath)) {
-    console.error("No candidate.json yet. Generate the profile first:  apply-new generate");
+    console.error(`No ${OUT_DIR}/candidate.json yet. Generate the profile first:  apply-new generate`);
     process.exit(2);
   }
   const profile = JSON.parse(readFileSync(profilePath, "utf8"));

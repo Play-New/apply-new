@@ -23,7 +23,7 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
    ```
    Show the candidate the line `… representative: …` from the output. This is the auto-selection of representative projects — 3 to 5, adaptive: flagships by significance, plus a 4th/5th slot only when a project adds a new primary type or comparable significance. `--top N` forces a fixed count if the candidate asks.
 
-3. **Read `narrative-input.json`.** It contains:
+3. **Read `out/narrative-input.json`.** It contains:
    - For each representative project: an id (`p1`, `p2`, …), a `repoLabel` (the candidate's own repo directory name — use this to talk to the candidate so they know which project you mean), type tags, sessions, repo areas touched, stack, landing signals, sampled prompts, learning topics, LOCAL repo context.
    - A `trajectory` block: behavioral shifts (numbers, early vs late half), topic clusters per quarter from web research, `vocabularyCandidates` (raw recurring-late words — many are common chat words, you pick the technical/domain-specific ones).
    - A `principlesDiff`: lines the candidate ADDED to their own CLAUDE.md / README over time — their codified doctrine.
@@ -32,7 +32,7 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
 
    **Always refer to projects by `repoLabel` when talking to the candidate** (e.g. "for *acme-storefront* you'd want to..."), never by opaque `p1`/`p2`.
 
-4. **Write `narrative.json`** with exactly this shape:
+4. **Write `out/narrative.json`** with exactly this shape:
    ```json
    {
      "summary": "2-3 sentences: WHAT this person works on (top domains) and HOW they work with AI.",
@@ -59,7 +59,7 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
 
    **Hard rules (do not bend):**
    - **No proper names.** No companies, clients, people, products, brands, repositories. Describe each project ONLY by abstract domain and context.
-   - Use only the data provided in `narrative-input.json`. No invention, no hyperbole.
+   - Use only the data provided in `out/narrative-input.json`. No invention, no hyperbole.
    - Evidence-based: claims supported by signals (areas, stack, landing, prompts, commits).
    - English, dry, readable. No emojis, no em dashes.
    - Length: summary ≤ 60 words; cognitive narrative ≤ 130 words; learning summary ≤ 40 words; ai_relationship / intensity / distribution narratives ≤ 50 words each; per-project domain ≤ 60 words; per-project `did` ≤ 60 words.
@@ -68,14 +68,14 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
 5. **Run finalize.** Execute:
    ```
    node bin/apply-new.mjs finalize \
-     --narrative-file narrative.json \
+     --narrative-file out/narrative.json \
      --name "<name>" --email "<email>" --city "<city>" --status "<status>"
    ```
-   This writes `candidate.json` (for agents) and `profile.md` (for humans).
+   This writes `out/candidate.json` (for agents) and `out/profile.md` (for humans).
 
-6. **Show `profile.md`** to the candidate, then ask the four review questions below **ONE AT A TIME, in order**. Wait for an answer before moving to the next. **Do NOT enumerate them in a single block** — the goal is a conversation, not a survey.
+6. **Show `out/profile.md`** to the candidate, then ask the four review questions below **ONE AT A TIME, in order**. Wait for an answer before moving to the next. **Do NOT enumerate them in a single block** — the goal is a conversation, not a survey.
 
-   **Question 1 — Representative projects.** State the ones that were auto-selected (3 to 5) with their repoLabel ("acme-storefront — e-commerce storefront", etc.) and ask if any should be swapped for one from the inventory. After their answer, edit `candidate.json` if needed.
+   **Question 1 — Representative projects.** State the ones that were auto-selected (3 to 5) with their repoLabel ("acme-storefront — e-commerce storefront", etc.) and ask if any should be swapped for one from the inventory. After their answer, edit `out/candidate.json` if needed.
 
    **Question 2 — Artifacts (optional).** Artifacts MUST belong to the specific project they are attached to. Do NOT pick URLs from the candidate's `learningTopics` or recent web searches — those are research links, not artifacts. Go through the representative projects ONE BY ONE, repoLabel by repoLabel:
 
@@ -84,16 +84,16 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
    - If they offer a URL, sanity-check it against the project domain you described. If it doesn't seem to match (e.g. they give a personal site URL for a creator platform), ask before attaching.
    - Never invent or guess an artifact. Confidentiality boundary stays with the candidate — never push to attach.
 
-   When updating `candidate.json`, write the artifact under the SAME project id:
+   When updating `out/candidate.json`, write the artifact under the SAME project id:
    ```json
    { "id": "p1", "artifact": { "type": "url", "url": "...", "label": "..." } }
    ```
 
-   **Question 3 — New vocabulary review.** Read the list of words you picked for `vocabulary_adopted` aloud with them. Flag any borderline tokens (researcher / framework / library names are signal; client / colleague / brand names are not — distinguishing automatically is hard so you mention them, not pre-decide). Ask if there's anything they'd rather not surface. Edit `candidate.json` and re-render `profile.md` if needed.
+   **Question 3 — New vocabulary review.** Read the list of words you picked for `vocabulary_adopted` aloud with them. Flag any borderline tokens (researcher / framework / library names are signal; client / colleague / brand names are not — distinguishing automatically is hard so you mention them, not pre-decide). Ask if there's anything they'd rather not surface. Edit `out/candidate.json` and re-render `out/profile.md` if needed.
 
-   **Question 4 — Narrative refinements.** Ask if anything in the summary, cognitive narrative, trajectory narrative, or per-project text reads off. If yes, rewrite `narrative.json` (same hard rules) and run finalize again.
+   **Question 4 — Narrative refinements.** Ask if anything in the summary, cognitive narrative, trajectory narrative, or per-project text reads off. If yes, rewrite `out/narrative.json` (same hard rules) and run finalize again.
 
-7. **Clean up.** Delete `narrative-input.json` once the candidate is satisfied (it contains local repo context with real names). Keep `narrative.json`, `candidate.json`, `profile.md`.
+7. **Clean up.** Delete `out/narrative-input.json` once the candidate is satisfied (it contains local repo context with real names). Keep `out/narrative.json`, `out/candidate.json`, `out/profile.md`.
 
 8. **Mention the groundedness score.** The `assembleProfile` step writes `profile.groundedness.score` — show it to the candidate, e.g. "Groundedness: 92% of the verifiable anchors in the prose match your logs." If anomalies are interesting, glance at them (they're surfaced again at submit).
 
@@ -106,4 +106,4 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
 
 - The candidate's Claude Code subscription is doing the LLM work here. No API key required.
 - If the candidate hasn't approved running shell commands, ask permission for the `node bin/apply-new.mjs …` invocations before executing.
-- Iteration is free: re-read `narrative-input.json`, rewrite `narrative.json`, re-run `finalize`. The deterministic pipeline doesn't need to re-run unless they change `--top` or contact fields.
+- Iteration is free: re-read `out/narrative-input.json`, rewrite `out/narrative.json`, re-run `finalize`. The deterministic pipeline doesn't need to re-run unless they change `--top` or contact fields.
