@@ -269,6 +269,9 @@ export function renderMarkdown(p) {
     L.push(`- Custom skills/commands: ${a.uses.customSkillsCommands.distinct} distinct, ${a.uses.customSkillsCommands.invocations} invocations`);
     L.push(`- Public MCP servers: ${a.uses.publicMcp.servers} · ${a.uses.publicMcp.calls} calls`);
     L.push(`- Custom MCP servers: ${a.uses.customMcp.servers} · ${a.uses.customMcp.tools} tools · ${a.uses.customMcp.calls} calls`);
+    if (a.uses.autonomous?.sessions) {
+      L.push(`- Autonomous (dispatched) sessions: ${a.uses.autonomous.sessions} · ${a.uses.autonomous.runs} runs · ${a.uses.autonomous.changes} changes`);
+    }
     L.push(`\nBuilds`);
     L.push(`- Skills authored: ${a.builds.skillsAuthored}`);
     L.push(`- Commands authored: ${a.builds.commandsAuthored}`);

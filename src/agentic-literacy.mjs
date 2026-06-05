@@ -110,6 +110,15 @@ export function computeAgenticLiteracy(parsed) {
   let customMcpCalls = 0;
   let publicMcpCalls = 0;
 
+  // AUTONOMY — sessions that were dispatched by an autonomous orchestrator
+  // (rather than driven by hand). Detected via a correlation marker the
+  // orchestrator stamps into the child's first prompt; works across CLIs
+  // (Claude Code, opencode, crush) because it lives in the prompt text, not in
+  // any one tool's log format. Counts only — the change ids are never emitted.
+  let autonomousSessions = 0;
+  const autonomousRuns = new Set();
+  const autonomousChanges = new Set();
+
   // BUILDS
   const skillsAuthored = new Set();
   const commandsAuthored = new Set();
@@ -119,8 +128,12 @@ export function computeAgenticLiteracy(parsed) {
 
   // Slash commands appear in user messages wrapped in <command-name>foo</command-name>.
   const SLASH_RE = /<command-name>(\/[\w:-]+)<\/command-name>/g;
+  // Autonomous-run marker, e.g. <!-- sudd-run id=1a2b change=green:vision -->.
+  // See the run-correlation contract on the orchestrator side.
+  const RUN_MARKER_RE = /<!--\s*sudd-run\s+id=(\S+)\s+change=(\S+)\s*-->/g;
 
   for (const s of parsed.sessions ?? []) {
+    let sessionDispatched = false;
     for (const m of s.messages ?? []) {
       // Slash commands invoked
       if (m.role === "user" && m.textRedacted) {
@@ -131,6 +144,11 @@ export function computeAgenticLiteracy(parsed) {
             customSlashSet.add(cmd);
             customSlashInvocations++;
           }
+        }
+        for (const match of m.textRedacted.matchAll(RUN_MARKER_RE)) {
+          sessionDispatched = true;
+          autonomousRuns.add(match[1]);
+          autonomousChanges.add(match[2]);
         }
       }
 
@@ -169,6 +187,7 @@ export function computeAgenticLiteracy(parsed) {
         }
       }
     }
+    if (sessionDispatched) autonomousSessions++;
   }
 
   return {
@@ -179,6 +198,7 @@ export function computeAgenticLiteracy(parsed) {
       customSkillsCommands: { distinct: customSlashSet.size, invocations: customSlashInvocations },
       publicMcp: { servers: publicMcpServers.size, calls: publicMcpCalls },
       customMcp: { servers: customMcpServers.size, tools: customMcpTools.size, calls: customMcpCalls },
+      autonomous: { sessions: autonomousSessions, runs: autonomousRuns.size, changes: autonomousChanges.size },
     },
     builds: {
       skillsAuthored: skillsAuthored.size,
