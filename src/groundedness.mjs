@@ -132,6 +132,9 @@ function collectSupportPool(profile) {
     addNumber(p?.landing?.reverts);
     addNumber(p?.metrics?.researchToMutation);
     addNumber(p?.metrics?.delegation);
+    // Orchestration counts a narrative may cite ("N dispatches across M CLIs").
+    addNumber(p?.metrics?.orchestration?.dispatchCommands);
+    addNumber(p?.metrics?.orchestration?.toolCount);
     addText(p?.span?.from);
     addText(p?.span?.to);
     for (const t of p.tech ?? []) for (const w of splitTech(t)) tech.add(w);
