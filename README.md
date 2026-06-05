@@ -25,7 +25,7 @@ The slash command asks for four contact fields (name, email, city, status), read
 node bin/apply-new.mjs submit --yes
 ```
 
-> Today the tool reads Claude Code logs. Codex CLI, Gemini CLI, and ChatGPT / Claude.ai exports are on the roadmap.
+> Today the tool reads Claude Code and [opencode](https://github.com/sst/opencode) logs (opencode is folded in automatically when present; disable with `--no-opencode`). Codex CLI, Gemini CLI, and ChatGPT / Claude.ai exports are on the roadmap.
 
 ## What we look at
 
@@ -80,7 +80,7 @@ If you spot something we should change, [open an issue](https://github.com/Play-
 | `finalize --narrative-file out/narrative.json` | finalize after `prepare` |
 | `submit --yes` | send to Play New |
 
-All commands run as `node bin/apply-new.mjs <sub>` or as `apply-new <sub>` after `npm link`. Common flags: `--name`, `--email`, `--city`, `--status`, `--top N` (force the project count; default is adaptive 3–5), `--root <dir>`. Without Claude Code, set `ANTHROPIC_API_KEY` and the narrative goes through the API instead of your subscription.
+All commands run as `node bin/apply-new.mjs <sub>` or as `apply-new <sub>` after `npm link`. Common flags: `--name`, `--email`, `--city`, `--status`, `--top N` (force the project count; default is adaptive 3–5), `--root <dir>`, `--no-opencode` (skip opencode logs), `--opencode-root <dir>` (override opencode's storage location). Without Claude Code, set `ANTHROPIC_API_KEY` and the narrative goes through the API instead of your subscription.
 
 ## Tests
 

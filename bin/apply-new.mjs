@@ -32,6 +32,7 @@ import { join } from "node:path";
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { readClaudeCode } from "../src/adapters/claude-code.mjs";
+import { readOpencode, defaultOpencodeRoot, mergeSources } from "../src/adapters/opencode.mjs";
 import { computeFingerprint } from "../src/fingerprint.mjs";
 import { computeForensics } from "../src/forensics.mjs";
 import { buildDigest } from "../src/digest.mjs";
@@ -78,8 +79,20 @@ async function loadProfileInputs(out) {
   if (!existsSync(root)) { console.error(`No logs at ${root}.`); process.exit(1); }
 
   console.log(`[1/5] Reading ${root} ...`);
-  const parsed = readClaudeCode(root);
-  console.log(`      ${parsed.sessions.length} sessions, ${parsed.files.length} files`);
+  let parsed = readClaudeCode(root);
+  console.log(`      claude-code: ${parsed.sessions.length} sessions, ${parsed.files.length} files`);
+
+  // Also fold in opencode logs (a different CLI that doesn't write to
+  // ~/.claude/projects). Off only with --no-opencode; auto-skips if absent.
+  if (!flag("no-opencode")) {
+    const ocRoot = flag("opencode-root", defaultOpencodeRoot());
+    const oc = readOpencode(ocRoot);
+    if (oc.sessions.length) {
+      console.log(`      opencode:    ${oc.sessions.length} sessions, ${oc.files.length} files` +
+        (oc.stats?.rolledUpSubagentSessions ? ` (${oc.stats.rolledUpSubagentSessions} subagent sessions rolled up)` : ""));
+      parsed = mergeSources(parsed, oc);
+    }
+  }
 
   console.log(`[2/5] Fingerprint, manifest, consistency ...`);
   const fingerprint = computeFingerprint(parsed);

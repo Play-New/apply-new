@@ -26,6 +26,8 @@ What we **never** collect: client names, product names, person names, repository
 
 The narrative is written under hard constraints: no proper names, evidence-based only, no hyperbole. A pre-submit *groundedness check* verifies that the prose anchors (numbers, technology names, type tags, year-months) trace back to the structured data.
 
+**Sources we read locally.** Apply New reads your Claude Code logs (`~/.claude/projects`) and, when present, your [opencode](https://github.com/sst/opencode) logs (`~/.local/share/opencode/storage`); skip the latter with `--no-opencode`. Both are read on your machine and reduced to the same redacted, counts-based subset described above. From opencode specifically we keep only what the Claude Code path keeps: tool **outputs** and assistant **error** payloads are dropped (we retain a byte count, never the text), reasoning is reduced to a character count, and file paths and shell commands are passed through the same PII redaction. The same "counts, not names" rule applies to every source.
+
 ## 3. Why we collect it (purpose)
 
 To **match you to the right project** at Play New. Concretely:
