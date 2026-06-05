@@ -32,7 +32,7 @@ import { join } from "node:path";
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { readClaudeCode } from "../src/adapters/claude-code.mjs";
-import { readOpencode, defaultOpencodeRoot, mergeSources } from "../src/adapters/opencode.mjs";
+import { readOpencode, readOpencodeJson, defaultOpencodeRoot, mergeSources } from "../src/adapters/opencode.mjs";
 import { computeFingerprint } from "../src/fingerprint.mjs";
 import { computeForensics } from "../src/forensics.mjs";
 import { buildDigest } from "../src/digest.mjs";
@@ -86,7 +86,9 @@ async function loadProfileInputs(out) {
   // ~/.claude/projects). Off only with --no-opencode; auto-skips if absent.
   if (!flag("no-opencode")) {
     const ocRoot = flag("opencode-root", defaultOpencodeRoot());
-    const oc = readOpencode(ocRoot);
+    // Default backend prefers the opencode.db (more complete); --opencode-json
+    // forces the faster but partial JSON-file cache.
+    const oc = flag("opencode-json") ? readOpencodeJson(ocRoot) : readOpencode(ocRoot);
     if (oc.sessions.length) {
       console.log(`      opencode:    ${oc.sessions.length} sessions, ${oc.files.length} files` +
         (oc.stats?.rolledUpSubagentSessions ? ` (${oc.stats.rolledUpSubagentSessions} subagent sessions rolled up)` : ""));

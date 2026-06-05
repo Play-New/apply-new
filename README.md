@@ -80,7 +80,7 @@ If you spot something we should change, [open an issue](https://github.com/Play-
 | `finalize --narrative-file out/narrative.json` | finalize after `prepare` |
 | `submit --yes` | send to Play New |
 
-All commands run as `node bin/apply-new.mjs <sub>` or as `apply-new <sub>` after `npm link`. Common flags: `--name`, `--email`, `--city`, `--status`, `--top N` (force the project count; default is adaptive 3–5), `--root <dir>`, `--no-opencode` (skip opencode logs), `--opencode-root <dir>` (override opencode's storage location). Without Claude Code, set `ANTHROPIC_API_KEY` and the narrative goes through the API instead of your subscription.
+All commands run as `node bin/apply-new.mjs <sub>` or as `apply-new <sub>` after `npm link`. Common flags: `--name`, `--email`, `--city`, `--status`, `--top N` (force the project count; default is adaptive 3–5), `--root <dir>`, `--no-opencode` (skip opencode logs), `--opencode-root <dir>` (override opencode's storage location), `--opencode-json` (read opencode's JSON file cache instead of its `opencode.db`). Without Claude Code, set `ANTHROPIC_API_KEY` and the narrative goes through the API instead of your subscription.
 
 ## Tests
 
