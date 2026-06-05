@@ -45,8 +45,11 @@ const TECH = [
   [/\bzod\b/i, "Zod"],
   [/prisma/i, "Prisma"],
   [/next\.config|\/app\/.*\.tsx?$/i, "Next.js/React"],
+  [/vite\.config|\bvite\b/i, "Vite/React"],
   [/drizzle/i, "Drizzle"],
   [/stripe/i, "Stripe"],
+  [/fastapi|uvicorn|\bstarlette\b/i, "FastAPI"],
+  [/\.py$|pyproject\.toml|requirements\.txt/i, "Python"],
 ];
 const detectTech = (blobs) => {
   const f = new Set();
