@@ -13,6 +13,13 @@ import { redactText, countRedactions } from "../redact.mjs";
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 const shortHash = (s) => sha256(s).slice(0, 8);
 
+// Canonicalise paths to POSIX separators. The path-based analysis downstream
+// (repo clustering in digest.mjs, area extraction, skill/agent detection in
+// agentic-literacy.mjs) is written against "/"; on Windows the logged paths
+// use "\", so without this every path regex silently misses. cwdRaw is left
+// untouched — it stays the real OS path used for local filesystem access.
+export const toPosix = (s) => (typeof s === "string" ? s.replace(/\\/g, "/") : s);
+
 function* walk(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -49,7 +56,7 @@ function extractContent(content) {
           toolUses.push({
             id: b.id,
             name: b.name,
-            path: redactText(inp.file_path || inp.path || ""),
+            path: toPosix(redactText(inp.file_path || inp.path || "")),
             cmd: b.name === "Bash" ? redactText(String(inp.command || "").slice(0, 240)) : "",
             q: redactText(String(inp.query || inp.url || "").slice(0, 200)),
           });
@@ -117,7 +124,7 @@ export function readClaudeCode(root) {
         source: "claude-code",
         sessionId: sid,
         projectLabel: r.cwd ? `project-${shortHash(r.cwd)}` : "project-unknown",
-        cwdRedacted: redactText(r.cwd || ""),
+        cwdRedacted: toPosix(redactText(r.cwd || "")),
         cwdRaw: r.cwd || "", // local-only, for repo enrichment; never sent in the bundle
 
         gitBranch: r.gitBranch,
@@ -141,7 +148,7 @@ export function readClaudeCode(root) {
     // sessions cluster as "unknown".
     if (!s.cwdRaw && r.cwd) {
       s.cwdRaw = r.cwd;
-      s.cwdRedacted = redactText(r.cwd);
+      s.cwdRedacted = toPosix(redactText(r.cwd));
       s.projectLabel = `project-${shortHash(r.cwd)}`;
     }
     if (!s.gitBranch && r.gitBranch) s.gitBranch = r.gitBranch;
