@@ -1,0 +1,81 @@
+// Windows-path handling: Claude Code on Windows logs paths with "\" separators.
+// The path-based analysis (repo clustering, area extraction, skill/agent
+// detection) is written against "/", so without normalisation at the adapter
+// boundary every path regex silently misses — areas come back empty, authored
+// skills/agents count as 0, and the repo label degrades to the full path.
+//
+// These tests pin the normalisation by driving the real adapter with synthetic
+// Windows-shaped log records and asserting the downstream lenses recover.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { readClaudeCode } from "../src/adapters/claude-code.mjs";
+import { buildDigest } from "../src/digest.mjs";
+import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
+
+// A Windows working directory and the file paths a session would touch, all
+// using backslash separators exactly as Claude Code records them on win32.
+const CWD = "C:\\Users\\alice\\Documents\\proj\\my-product";
+const records = [
+  { type: "user", sessionId: "s1", cwd: CWD, timestamp: "2026-05-01T10:00:00.000Z",
+    uuid: "u1", version: "1.0.0",
+    message: { role: "user", content: "let's build the agent route and the api" } },
+  { type: "assistant", sessionId: "s1", cwd: CWD, timestamp: "2026-05-01T10:01:00.000Z",
+    uuid: "u2", parentUuid: "u1", version: "1.0.0",
+    message: { role: "assistant", model: "claude-x", content: [
+      { type: "tool_use", id: "t1", name: "Edit",
+        input: { file_path: "C:\\Users\\alice\\Documents\\proj\\my-product\\src\\api\\agent\\route.ts" } },
+      { type: "tool_use", id: "t2", name: "Write",
+        input: { file_path: "C:\\Users\\alice\\Documents\\proj\\my-product\\api\\main.py" } },
+      { type: "tool_use", id: "t3", name: "Bash",
+        input: { command: "uvicorn api.main:app --reload" } },
+      { type: "tool_use", id: "t4", name: "Write",
+        input: { file_path: "C:\\Users\\alice\\.claude\\skills\\my-skill\\SKILL.md" } },
+      { type: "tool_use", id: "t5", name: "Write",
+        input: { file_path: "C:\\Users\\alice\\.claude\\agents\\my-agent.md" } },
+    ] } },
+];
+
+function parseFixture() {
+  const dir = mkdtempSync(join(tmpdir(), "apply-new-win-"));
+  try {
+    writeFileSync(join(dir, "session.jsonl"), records.map((r) => JSON.stringify(r)).join("\n"));
+    return readClaudeCode(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("adapter normalises Windows paths to POSIX (and still redacts the user)", () => {
+  const parsed = parseFixture();
+  const s = parsed.sessions[0];
+  assert.ok(!s.cwdRedacted.includes("\\"), `cwdRedacted still has backslashes: ${s.cwdRedacted}`);
+  assert.ok(s.cwdRedacted.includes("⟨user⟩"), "username should still be redacted");
+  const paths = s.messages.flatMap((m) => m.toolUses.map((u) => u.path)).filter(Boolean);
+  for (const p of paths) assert.ok(!p.includes("\\"), `tool path still has backslashes: ${p}`);
+});
+
+test("digest clusters by repo basename and recovers code areas + tech on Windows", () => {
+  const digest = buildDigest(parseFixture());
+  assert.equal(digest.projects.length, 1);
+  const proj = digest.projects[0];
+  // #4: repo is the basename, not the full "C:\Users\..." path.
+  assert.equal(proj.repo, "my-product");
+  // #1: code areas are populated (and "src/" is stripped from the lead segment).
+  assert.ok(Object.keys(proj.topAreas).includes("api/agent/route.ts"),
+    `areas missing route: ${JSON.stringify(proj.topAreas)}`);
+  assert.ok(Object.keys(proj.topAreas).includes("api/main.py"));
+  // #5: stack is detected from the recovered areas + commands.
+  assert.ok(proj.tech.includes("Python"), `tech: ${JSON.stringify(proj.tech)}`);
+  assert.ok(proj.tech.includes("FastAPI"), `tech: ${JSON.stringify(proj.tech)}`);
+});
+
+test("agentic literacy counts authored skills/agents from Windows paths", () => {
+  const a = computeAgenticLiteracy(parseFixture());
+  // #2: .claude\skills\...\SKILL.md and .claude\agents\....md are detected.
+  assert.equal(a.builds.skillsAuthored, 1);
+  assert.equal(a.builds.agentsAuthored, 1);
+});
