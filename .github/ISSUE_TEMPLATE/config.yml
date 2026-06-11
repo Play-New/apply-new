@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Play-New/apply-new/security/advisories/new
+    about: Please report security issues privately — never as a public issue. See SECURITY.md.
+  - name: New log source proposal
+    url: https://github.com/Play-New/apply-new/blob/main/CONTRIBUTING.md#log-sources
+    about: Current policy is Claude Code + opencode. Read the source policy before proposing an adapter.

@@ -1,0 +1,40 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# The suite needs nothing but a checkout: keep the token read-only.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (Node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22', '26']
+        os: [ubuntu-latest]
+        include:
+          # The Windows path normalization (PR #2) is a supported, tested
+          # surface — run the suite where those paths are real.
+          - node: '22'
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+
+  # Single required context for branch protection: green only when every
+  # matrix leg is green.
+  tests-pass:
+    name: tests-pass
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "all matrix legs passed"

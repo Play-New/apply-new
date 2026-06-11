@@ -90,6 +90,13 @@ All commands run as `node bin/apply-new.mjs <sub>` or as `apply-new <sub>` after
 npm test
 ```
 
+## Contributing
+
+PRs and issues are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the rules
+that make this repo unusual (schema discipline, privacy boundaries, the
+[ADR-001](docs/adr/001-just-a-report.md) frame, the current two-source policy).
+Security issues go privately via [SECURITY.md](SECURITY.md), never as public issues.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
