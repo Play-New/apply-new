@@ -18,6 +18,8 @@
 //   --name "Giulia" --email g@x.io --city Milano --status freelance
 //   --top 4                        # force the number of representative projects
 //                                  # (default: adaptive, 3 to 5)
+//   --tz Europe/Rome               # timezone for day-based counts (activeDays,
+//                                  # streak). Default UTC; recorded in the profile.
 //   --narrative-file narrative.json
 //   --endpoint https://...         # override PLAYNEW_INTAKE_URL for submit
 //
@@ -47,6 +49,7 @@ import { computeAiRelationship } from "../src/ai-relationship.mjs";
 import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
 import { computeIntensity } from "../src/intensity.mjs";
 import { computeDistribution } from "../src/distribution.mjs";
+import { DEFAULT_TZ } from "../src/days.mjs";
 
 const SUB_COMMANDS = new Set(["generate", "prepare", "finalize", "submit"]);
 
@@ -81,8 +84,12 @@ async function loadProfileInputs(out) {
   const parsed = readClaudeCode(root);
   console.log(`      ${parsed.sessions.length} sessions, ${parsed.files.length} files`);
 
+  // Timezone the day-based counts (activeDays, streak) are bucketed in. Default
+  // UTC (machine-independent); recorded in the profile so the count reproduces.
+  const tz = flag("tz", DEFAULT_TZ);
+
   console.log(`[2/5] Fingerprint, manifest, consistency ...`);
-  const fingerprint = computeFingerprint(parsed);
+  const fingerprint = computeFingerprint(parsed, { tz });
   const forensics = computeForensics(parsed);
 
   console.log(`[3/5] Deep digest + per-repo clustering (PII redacted: ${parsed.redaction.hits}) ...`);
@@ -95,7 +102,7 @@ async function loadProfileInputs(out) {
   const trajectory = buildTrajectory(parsed);
   const aiRelationship = computeAiRelationship(parsed);
   const agenticLiteracy = computeAgenticLiteracy(parsed);
-  const intensity = computeIntensity(parsed);
+  const intensity = computeIntensity(parsed, { tz });
   const distribution = computeDistribution(projects);
   return { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, out };
 }

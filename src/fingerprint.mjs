@@ -7,6 +7,7 @@
 // edited after generation without the hashes diverging.
 
 import { createHash } from "node:crypto";
+import { activeDayKeys, DEFAULT_TZ } from "./days.mjs";
 
 const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 const ms = (iso) => (iso ? Date.parse(iso) : NaN);
@@ -21,7 +22,7 @@ const median = (arr) => percentile([...arr].sort((a, b) => a - b), 50);
 const MUTATION_TOOLS = new Set(["Edit", "Write", "NotebookEdit", "MultiEdit"]);
 const RESEARCH_TOOLS = new Set(["Read", "Grep", "Glob", "WebSearch", "WebFetch"]);
 
-export function computeFingerprint(parsed) {
+export function computeFingerprint(parsed, { tz = DEFAULT_TZ } = {}) {
   let messages = 0, user = 0, assistant = 0, toolUses = 0;
   const tokens = { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
   const toolHistogram = {};
@@ -80,7 +81,9 @@ export function computeFingerprint(parsed) {
     .reduce((n, [, v]) => n + v, 0);
 
   allTs = allTs.filter(Number.isFinite).sort((a, b) => a - b);
-  const days = new Set(allTs.map((t) => new Date(t).toISOString().slice(0, 10)));
+  // Shared definition: distinct days carrying real message activity, bucketed in
+  // `tz` (default UTC — identical to the prior toISOString bucketing).
+  const days = activeDayKeys(allTs, tz);
   const latSorted = [...latencies].sort((a, b) => a - b);
 
   // Provenance manifest: per-file hashes + a bundle hash over them.
@@ -97,6 +100,7 @@ export function computeFingerprint(parsed) {
       assistantMessages: assistant,
       toolUses,
       activeDays: days.size,
+      activeDaysTimezone: tz, // recorded so the count is reproducible (CONTRIBUTING: determinism)
       firstDay: allTs.length ? new Date(allTs[0]).toISOString().slice(0, 10) : null,
       lastDay: allTs.length ? new Date(allTs.at(-1)).toISOString().slice(0, 10) : null,
     },

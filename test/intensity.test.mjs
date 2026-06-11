@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { computeIntensity } from "../src/intensity.mjs";
+import { computeFingerprint } from "../src/fingerprint.mjs";
 
 function sess(sid, firstTs, lastTs, toolCallsPerMessage = []) {
   return {
@@ -59,4 +60,47 @@ test("longest streak counts consecutive active days correctly", () => {
   const sessions = days.map((d) => sess(d, `2026-${d}T10:00:00Z`, `2026-${d}T10:00:00Z`, [10]));
   const i = computeIntensity({ sessions });
   assert.equal(i.longestStreak, 5);
+});
+
+// --- shared active-day definition (converges with the fingerprint) ----------
+
+// A session usable by BOTH lenses: real per-message timestamps, the fields the
+// fingerprint reads, and a `files` array so the manifest step doesn't throw.
+function pmsg(ts) {
+  return { role: "user", ts, textRedacted: "hello there friend", thinkingChars: 0, signatureChars: 0, toolUses: [], usage: null };
+}
+function psess(sid, isoList) {
+  const sorted = [...isoList].sort();
+  return {
+    sessionId: sid, projectLabel: "proj", models: [], cliVersions: [],
+    firstTs: sorted[0], lastTs: sorted.at(-1), messages: isoList.map(pmsg),
+  };
+}
+
+test("activeDays matches the fingerprint definition for the same logs and tz", () => {
+  const parsed = {
+    source: "test", files: [],
+    sessions: [
+      psess("a", ["2026-01-01T10:00:00Z", "2026-01-02T09:00:00Z"]),
+      psess("b", ["2026-01-05T12:00:00Z"]),
+    ],
+  };
+  const i = computeIntensity(parsed);
+  const fp = computeFingerprint(parsed);
+  assert.equal(i.activeDays, fp.totals.activeDays); // converged
+  assert.equal(i.activeDays, 3); // Jan 1, 2, 5
+});
+
+test("a continued session marks the days it had message activity, with no interpolation", () => {
+  // Opened Jan 1, continued Jan 3. Jan 2 had no message and must stay idle.
+  const parsed = { source: "test", files: [], sessions: [psess("x", ["2026-01-01T10:00:00Z", "2026-01-03T09:00:00Z"])] };
+  assert.equal(computeIntensity(parsed).activeDays, 2); // Jan 1 + Jan 3, not Jan 2
+});
+
+test("records the timezone used, and buckets in an explicit zone (not host-local)", () => {
+  const parsed = { source: "test", files: [], sessions: [psess("a", ["2026-01-01T23:30:00Z"])] };
+  assert.equal(computeIntensity(parsed).timezone, "UTC");
+  const rome = computeIntensity(parsed, { tz: "Europe/Rome" });
+  assert.equal(rome.timezone, "Europe/Rome");
+  assert.equal(rome.activeDays, 1);
 });
