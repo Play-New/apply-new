@@ -41,7 +41,7 @@ import { enrichRepo, describeContextGaps } from "../src/enrich.mjs";
 import { generateNarrative } from "../src/profile-llm.mjs";
 import { selectRepresentatives, assembleProfile, renderMarkdown, summarizeSources } from "../src/profile.mjs";
 import { buildContact } from "../src/contact.mjs";
-import { submitProfile } from "../src/submit.mjs";
+import { submitProfile, buildPayload } from "../src/submit.mjs";
 import { buildTrajectory } from "../src/trajectory.mjs";
 import { assessGroundedness } from "../src/groundedness.mjs";
 import { assessStructure, assessAgainstLogs, submitBlockers } from "../src/consistency.mjs";
@@ -50,6 +50,19 @@ import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
 import { computeIntensity } from "../src/intensity.mjs";
 import { computeDistribution } from "../src/distribution.mjs";
 import { DEFAULT_TZ } from "../src/days.mjs";
+
+// Friendly Node floor (package.json `engines` is advisory only when invoked
+// as `node bin/apply-new.mjs`). Imports hoist and evaluate before this line
+// runs, so the check only protects us while src/ stays free of import-time
+// Node-20-only syntax and builtins — true today: fetch / FormData /
+// structuredClone all live inside function bodies, and everything parses as
+// ES2022. Without this, old Node dies later with a bare ReferenceError.
+const nodeMajor = Number(process.versions.node.split(".")[0]);
+if (nodeMajor < 20) {
+  console.error(`apply-new needs Node 20 or newer; you're running ${process.version}.`);
+  console.error(`Install a current Node from https://nodejs.org (or: nvm install 20).`);
+  process.exit(1);
+}
 
 const SUB_COMMANDS = new Set(["generate", "prepare", "finalize", "submit"]);
 
@@ -265,6 +278,8 @@ async function cmdSubmit() {
   console.log(`  profile: ${profile.volume?.sessions} sessions, ${profile.volume?.products} products`);
   console.log(`  artifacts: ${(profile.projects || []).filter((p) => p.artifact).length}`);
   console.log(`\nNOT submitted: raw logs, local repo context, third-party proper names.`);
+  console.log(`Repository names (repoLabel) are stripped from the payload before it leaves your machine.`);
+  console.log(`Inspect the exact outgoing payload:  apply-new submit --dry-run`);
 
   // Pre-flight groundedness: how much of the prose is anchored in the data.
   // Recomputed on the file as it is NOW, not trusted from the embedded score.
@@ -325,12 +340,8 @@ async function cmdSubmit() {
     console.log(`  structured data is internally consistent and matches your logs`);
   }
 
-  if (!has("yes")) {
-    console.log(`\nTo confirm:  apply-new submit --yes`);
-    return;
-  }
   const blockers = submitBlockers({ issues, groundedness: g, force: has("force") });
-  if (blockers.length) {
+  const printBlockers = () => {
     for (const b of blockers) {
       if (b.kind === "consistency") {
         console.error(`\nConsistency check failed (${b.count} issue${b.count > 1 ? "s" : ""}). Submission blocked.`);
@@ -345,6 +356,35 @@ async function cmdSubmit() {
         console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
       }
     }
+  };
+
+  // --dry-run: write the EXACT outgoing JSON (repository names stripped) and
+  // stop before any network call — so a candidate under NDA can read the very
+  // bytes that would leave the machine. The file is written even when submit
+  // would be blocked: inspection is the point; the exit code says which.
+  if (has("dry-run")) {
+    const previewPath = join(process.cwd(), OUT_DIR, "payload-preview.json");
+    writeFileSync(previewPath, JSON.stringify(buildPayload(profile), null, 2) + "\n");
+    console.log(`\nWrote ${OUT_DIR}/payload-preview.json — the exact JSON \`submit --yes\` would POST (repository names stripped). Nothing was sent.`);
+    const fileArtifacts = (profile.projects ?? []).filter((p) => p.artifact?.type === "file" && p.artifact.path);
+    if (fileArtifacts.length) {
+      console.log(`Artifact files that would upload as separate parts:`);
+      for (const p of fileArtifacts) console.log(`  - ${p.id}: ${p.artifact.path}`);
+    }
+    if (blockers.length) {
+      console.error(`\nsubmit would be blocked:`);
+      printBlockers();
+      process.exit(2);
+    }
+    return;
+  }
+
+  if (!has("yes")) {
+    console.log(`\nTo confirm:  apply-new submit --yes`);
+    return;
+  }
+  if (blockers.length) {
+    printBlockers();
     process.exit(2);
   }
 

@@ -56,7 +56,7 @@ test("slash command paths match the out/ folder bin actually writes to", () => {
   //    narrative step look in the wrong place.
   const outDir = binSrc.match(/const OUT_DIR = "([^"]+)"/)?.[1];
   assert.ok(outDir, "bin must declare OUT_DIR");
-  for (const f of ["narrative-input.json", "narrative.json", "candidate.json", "profile.md"]) {
+  for (const f of ["narrative-input.json", "narrative.json", "candidate.json", "profile.md", "payload-preview.json"]) {
     assert.ok(command.includes(`\`${outDir}/${f}\``), `slash command must reference ${outDir}/${f}`);
     assert.ok(!command.includes(`\`${f}\``), `slash command references ${f} without the ${outDir}/ prefix`);
   }
@@ -69,5 +69,30 @@ test("example repoLabels in the slash command are fictional (acme-*)", () => {
   assert.ok(examples.length > 0, "expected at least one italicised repoLabel example");
   for (const e of examples) {
     assert.ok(e.startsWith("acme-"), `example repoLabel "${e}" must start with "acme-" so it can never be a real repo`);
+  }
+});
+
+// --- the Node floor and the payload preview (defect-to-test) -----------------
+// 6. engines >=20 was advisory only: `node bin/apply-new.mjs` bypassed npm's
+//    check entirely and died on old Node with a bare ReferenceError. The floor
+//    now lives in three places that must not drift: engines, the README
+//    requirement line, and the runtime check in bin.
+// 7. The repoLabel strip ran invisibly inside submitProfile; --dry-run makes
+//    the exact payload inspectable and must stay documented where users look.
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+const privacy = readFileSync(new URL("../PRIVACY.md", import.meta.url), "utf8");
+
+test("the Node floor is pinned in engines, README, and the runtime check", () => {
+  assert.equal(pkg.engines?.node, ">=20", "package.json engines must state >=20");
+  assert.ok(readme.includes("Node 20"), "README must state the Node requirement");
+  assert.match(binSrc, /process\.versions\.node/, "bin must check the running Node version");
+  assert.match(binSrc, /nodeMajor < 20/, "the runtime floor must match engines (20)");
+});
+
+test("submit --dry-run and its output file are documented in all three user surfaces", () => {
+  for (const [name, text] of [["README", readme], ["PRIVACY", privacy], ["slash command", command]]) {
+    assert.ok(text.includes("--dry-run"), `${name} must mention submit --dry-run`);
+    assert.ok(text.includes("payload-preview.json"), `${name} must name the preview file`);
   }
 });

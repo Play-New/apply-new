@@ -51,7 +51,7 @@ We **do not**:
 
 ## 4. Legal basis
 
-**Explicit consent** (GDPR Art. 6(1)(a)). You run `apply-new submit --yes` after seeing exactly what is being sent. You can withdraw consent at any time by reaching us via [playnew.com](https://playnew.com).
+**Explicit consent** (GDPR Art. 6(1)(a)). You run `apply-new submit --yes` after seeing exactly what is being sent. You can inspect the exact payload before consenting: `apply-new submit --dry-run` writes it to `out/payload-preview.json` — repository names already stripped — and sends nothing. You can withdraw consent at any time by reaching us via [playnew.com](https://playnew.com).
 
 ## 5. How long we keep it (retention)
 
