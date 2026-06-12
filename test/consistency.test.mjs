@@ -114,3 +114,46 @@ test("logs: a project missing from the logs is an issue but not an excess claim"
   assert.ok(issues.some((i) => i.includes("no such project")));
   assert.equal(excessClaims, 0);
 });
+
+// --- day-based intensity claims (issue #10, lands on #8's recorded timezone) -
+
+test("structure: activeDays exceeding observedDays is an invariant violation", () => {
+  const p = honestProfile();
+  p.intensity = { observedDays: 30, activeDays: 31, longestStreak: 5, timezone: "UTC" };
+  const { issues } = assessStructure(p);
+  assert.ok(issues.some((i) => i.includes("intensity.activeDays")), issues.join("; "));
+  p.intensity.activeDays = 30; // every observed day active: legal
+  assert.deepEqual(assessStructure(p).issues, []);
+});
+
+test("structure: a profile without an intensity block stays valid", () => {
+  assert.deepEqual(assessStructure(honestProfile()).issues, []);
+});
+
+test("logs: intensity claims exceeding the re-derivation join excessClaims", () => {
+  const p = honestProfile();
+  p.intensity = { observedDays: 30, activeDays: 24, longestStreak: 9, timezone: "UTC" };
+  // Pruning aged out old sessions: whole days fell out of the re-derivation.
+  const derived = { activeDays: 20, longestStreak: 6, timezone: "UTC" };
+  const { issues, excessClaims } = assessAgainstLogs(p, digestProjects(), { intensity: derived });
+  assert.equal(excessClaims, 2);
+  assert.ok(issues.some((i) => i.includes("24 active days")), issues.join("; "));
+  assert.ok(issues.some((i) => i.includes("9-day streak")), issues.join("; "));
+});
+
+test("logs: intensity growth since generation stays green (one-directional gate)", () => {
+  const p = honestProfile();
+  p.intensity = { observedDays: 30, activeDays: 24, longestStreak: 9, timezone: "UTC" };
+  const derived = { activeDays: 26, longestStreak: 11, timezone: "UTC" }; // kept working since
+  const { issues, excessClaims } = assessAgainstLogs(p, digestProjects(), { intensity: derived });
+  assert.equal(excessClaims, 0);
+  assert.deepEqual(issues, []);
+});
+
+test("logs: no re-derived intensity given means no intensity checks (old call shape)", () => {
+  const p = honestProfile();
+  p.intensity = { observedDays: 30, activeDays: 24, longestStreak: 9, timezone: "UTC" };
+  const { issues, excessClaims } = assessAgainstLogs(p, digestProjects());
+  assert.equal(excessClaims, 0);
+  assert.deepEqual(issues, []);
+});

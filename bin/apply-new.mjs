@@ -285,8 +285,12 @@ async function cmdSubmit() {
   let root = flag("root", join(homedir(), ".claude", "projects"));
   if (flag("project")) root = join(root, flag("project"));
   if (existsSync(root)) {
-    const digest = buildDigest(readClaudeCode(root));
-    const logs = assessAgainstLogs(profile, digest.projects);
+    const parsed = readClaudeCode(root);
+    const digest = buildDigest(parsed);
+    // Re-derive day-based intensity in the zone the profile RECORDED — never
+    // the machine zone — so the comparison measures the data, not the bucketing.
+    const intensity = computeIntensity(parsed, { tz: profile.intensity?.timezone || DEFAULT_TZ });
+    const logs = assessAgainstLogs(profile, digest.projects, { intensity });
     issues.push(...logs.issues);
     excessClaims = logs.excessClaims || 0;
     for (const w of logs.warnings) console.log(`  ~ ${w}`);

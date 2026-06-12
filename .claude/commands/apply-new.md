@@ -16,11 +16,14 @@ The default is **save, don't submit**. Submitting is a separate, explicit action
 
    Defaults: read `git config user.name` and `git config user.email` first and propose them as defaults. Only ask for what's missing or needs confirmation. Keep the conversation short.
 
+   While confirming, mention in ONE sentence: day-based counts (active days, longest streak) are bucketed in UTC by default so nothing location-shaped leaves the machine; if they'd rather have them in their local timezone, you'll pass `--tz <IANA zone>` (e.g. `--tz Europe/Rome`) and the zone gets recorded in the profile. Don't push either way — UTC is a fine default.
+
 2. **Run prepare.** Execute, substituting collected fields:
    ```
    node bin/apply-new.mjs prepare \
      --name "<name>" --email "<email>" --city "<city>" --status "<status>"
    ```
+   If the candidate opted into a local timezone in step 1, append `--tz <zone>` here AND to the `finalize` call in step 5 (finalize re-reads the logs, so it needs the same zone).
    Show the candidate the line `… representative: …` from the output. This is the auto-selection of representative projects — 3 to 5, adaptive: flagships by significance, plus a 4th/5th slot only when a project adds a new primary type or comparable significance. `--top N` forces a fixed count if the candidate asks.
 
 3. **Read `out/narrative-input.json`.** It contains:

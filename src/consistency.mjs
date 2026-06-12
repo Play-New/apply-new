@@ -46,6 +46,14 @@ export function assessStructure(profile) {
     }
   }
 
+  // Day-count invariant: a day cannot be active outside the observed window.
+  // Both counts bucket in the same recorded timezone since #8, so this holds
+  // by construction in honest output — a violation means a hand-edit.
+  const it = profile?.intensity;
+  if (it?.activeDays != null && it?.observedDays != null && Number(it.activeDays) > Number(it.observedDays)) {
+    issues.push(`intensity.activeDays is ${it.activeDays} but the observed window is only ${it.observedDays} days`);
+  }
+
   const auth = profile?.authenticity?.score;
   if (auth != null && (auth < 0 || auth > 100)) issues.push(`authenticity.score out of range: ${auth}`);
   const ground = profile?.groundedness?.score;
@@ -59,7 +67,13 @@ export function assessStructure(profile) {
 // by repoLabel — present locally until submit strips it from the payload. A
 // project whose repoLabel was removed by hand is reported as unverifiable
 // (warning), not as a violation.
-export function assessAgainstLogs(profile, digestProjects) {
+//
+// opts.intensity: the practice-intensity block re-derived from the logs in the
+// profile's RECORDED timezone (computeIntensity(parsed, { tz: profile.intensity
+// .timezone })) — never the machine zone, or a candidate who generated with
+// --tz Europe/Rome and submits from a CI box would be flagged for the bucketing
+// difference, not for any real excess.
+export function assessAgainstLogs(profile, digestProjects, opts = {}) {
   const issues = [];
   const warnings = [];
   const byRepo = new Map((digestProjects ?? []).map((p) => [p.repo, p]));
@@ -100,6 +114,20 @@ export function assessAgainstLogs(profile, digestProjects) {
     }
     if ((Number(p.landing?.commits) || 0) > (d.landing?.commits || 0)) {
       excess(`${p.id} (${p.repoLabel}): claims ${p.landing.commits} commits, logs show ${d.landing?.commits ?? 0}`);
+    }
+  }
+
+  // Day-based intensity claims, same one-directional gate: pruning ages whole
+  // days out of the logs, so the re-derived count can only be SMALLER than an
+  // honest claim when sessions were pruned — and ongoing use only adds days.
+  const claimed = profile?.intensity;
+  const derived = opts.intensity;
+  if (claimed && derived) {
+    if ((Number(claimed.activeDays) || 0) > (derived.activeDays || 0)) {
+      excess(`profile claims ${claimed.activeDays} active days but the logs re-derive ${derived.activeDays} (timezone ${derived.timezone ?? "UTC"})`);
+    }
+    if ((Number(claimed.longestStreak) || 0) > (derived.longestStreak || 0)) {
+      excess(`profile claims a ${claimed.longestStreak}-day streak but the logs re-derive ${derived.longestStreak}`);
     }
   }
 
