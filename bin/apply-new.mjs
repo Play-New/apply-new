@@ -44,7 +44,7 @@ import { buildContact } from "../src/contact.mjs";
 import { submitProfile } from "../src/submit.mjs";
 import { buildTrajectory } from "../src/trajectory.mjs";
 import { assessGroundedness } from "../src/groundedness.mjs";
-import { assessStructure, assessAgainstLogs } from "../src/consistency.mjs";
+import { assessStructure, assessAgainstLogs, submitBlockers } from "../src/consistency.mjs";
 import { computeAiRelationship } from "../src/ai-relationship.mjs";
 import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
 import { computeIntensity } from "../src/intensity.mjs";
@@ -329,15 +329,22 @@ async function cmdSubmit() {
     console.log(`\nTo confirm:  apply-new submit --yes`);
     return;
   }
-  if (issues.length && !has("force")) {
-    console.error(`\nConsistency check failed (${issues.length} issue${issues.length > 1 ? "s" : ""}). Submission blocked.`);
-    console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
-    console.error(`Note: the intake re-checks groundedness and these invariants server-side.`);
-    process.exit(2);
-  }
-  if (g.score != null && g.score < 60 && !has("force")) {
-    console.error(`\nGroundedness is low (${g.score}%). Submission blocked.`);
-    console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
+  const blockers = submitBlockers({ issues, groundedness: g, force: has("force") });
+  if (blockers.length) {
+    for (const b of blockers) {
+      if (b.kind === "consistency") {
+        console.error(`\nConsistency check failed (${b.count} issue${b.count > 1 ? "s" : ""}). Submission blocked.`);
+        console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
+        console.error(`Note: the intake re-checks groundedness and these invariants server-side.`);
+      } else if (b.kind === "groundedness-unscored") {
+        console.error(`\nGroundedness could not be scored: the prose has too few checkable anchors for the screen to run. Submission blocked.`);
+        console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
+        console.error(`Note: the intake flags unscoreable prose server-side as well.`);
+      } else if (b.kind === "groundedness-low") {
+        console.error(`\nGroundedness is low (${b.score}%). Submission blocked.`);
+        console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
+      }
+    }
     process.exit(2);
   }
 

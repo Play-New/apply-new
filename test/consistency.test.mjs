@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assessStructure, assessAgainstLogs } from "../src/consistency.mjs";
+import { assessStructure, assessAgainstLogs, submitBlockers } from "../src/consistency.mjs";
 
 const honestProfile = () => ({
   schema: "playnew-profile/v1",
@@ -156,4 +156,32 @@ test("logs: no re-derived intensity given means no intensity checks (old call sh
   const { issues, excessClaims } = assessAgainstLogs(p, digestProjects());
   assert.equal(excessClaims, 0);
   assert.deepEqual(issues, []);
+});
+
+// --- the submit gate (defect-to-test) ----------------------------------------
+// The gate read `g.score != null && g.score < 60` — a profile whose prose had
+// fewer than 4 checkable anchors scored null and sailed through the exact gate
+// built to stop ungrounded prose, while the intake flags precisely that case.
+// submitBlockers is the single pure gate every submit path consults.
+test("gate: unscored groundedness (null score) blocks like low groundedness", () => {
+  const b = submitBlockers({ groundedness: { score: null, supported: 0, total: 2 } });
+  assert.ok(b.some((x) => x.kind === "groundedness-unscored"), JSON.stringify(b));
+});
+
+test("gate: 59 blocks, 60 passes", () => {
+  assert.ok(submitBlockers({ groundedness: { score: 59 } }).some((x) => x.kind === "groundedness-low"));
+  assert.deepEqual(submitBlockers({ groundedness: { score: 60 } }), []);
+});
+
+test("gate: consistency issues block with a count", () => {
+  const b = submitBlockers({ issues: ["a", "b"], groundedness: { score: 100 } });
+  assert.deepEqual(b, [{ kind: "consistency", count: 2 }]);
+});
+
+test("gate: --force clears every blocker", () => {
+  assert.deepEqual(submitBlockers({ issues: ["a"], groundedness: { score: null }, force: true }), []);
+});
+
+test("gate: a clean, scored profile passes", () => {
+  assert.deepEqual(submitBlockers({ issues: [], groundedness: { score: 92 } }), []);
 });

@@ -62,6 +62,21 @@ export function assessStructure(profile) {
   return { issues };
 }
 
+// The submit gate, as one pure function so every consumer (submit --yes,
+// submit --dry-run) blocks on exactly the same conditions. An UNSCORED
+// groundedness (fewer than 4 checkable anchors in the prose) blocks like a
+// low one: prose the screen cannot check at all must not pass the gate that
+// exists to check prose — the intake flags the same case server-side.
+export function submitBlockers({ issues = [], groundedness = null, force = false } = {}) {
+  if (force) return [];
+  const blockers = [];
+  if (issues.length) blockers.push({ kind: "consistency", count: issues.length });
+  const score = groundedness?.score;
+  if (score == null) blockers.push({ kind: "groundedness-unscored" });
+  else if (score < 60) blockers.push({ kind: "groundedness-low", score });
+  return blockers;
+}
+
 // digestProjects: the per-repo clusters re-derived from the logs right now
 // (buildDigest(readClaudeCode(root)).projects). Profile projects are matched
 // by repoLabel — present locally until submit strips it from the payload. A
