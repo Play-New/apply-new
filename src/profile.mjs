@@ -256,10 +256,10 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
           // Deterministic facts (Lot 1).
           shifts: trajectory.shifts?.available ? trajectory.shifts : null,
           topics: trajectory.topics || [],
-          // The LLM filters domain/technical words out of the raw recurring
-          // list; if the model didn't run, fall back to the raw candidates.
-          newVocabulary:
-            narrative?.trajectory?.vocabulary_adopted ?? trajectory.vocabularyCandidates ?? [],
+          // ONLY the narrative's filtered pick. The raw vocabularyCandidates
+          // are unfiltered late-half words and can carry client or product
+          // names — they must never reach candidate.json.
+          newVocabulary: narrative?.trajectory?.vocabulary_adopted ?? [],
           // LLM-derived (Lot 2). Optional — may be null if no narrative ran.
           narrative: narrative?.trajectory?.narrative || null,
           principlesAdopted: narrative?.trajectory?.principles_adopted || [],
@@ -317,7 +317,7 @@ export function renderMarkdown(p) {
   for (const pr of p.projects) {
     const headTail = pr.repoLabel ? ` _(${pr.id} — ${pr.repoLabel})_` : ` _(${pr.id})_`;
     L.push(`\n### ${pr.domain || "(domain)"}  ·  ${pr.type.join(" · ")}${headTail}`);
-    L.push(`${pr.span.from}→${pr.span.to} · ${pr.sessions} sessions · ${land(pr.landing)}`);
+    L.push(`${pr.span.from ?? "n/a"}→${pr.span.to ?? "n/a"} · ${pr.sessions} sessions · ${land(pr.landing)}`);
     if (pr.tech.length) L.push(`stack: ${pr.tech.join(", ")}`);
     if (pr.did) L.push(pr.did);
     if (pr.whyRepresentative) L.push(`_why representative:_ ${pr.whyRepresentative}`);
@@ -328,7 +328,7 @@ export function renderMarkdown(p) {
     L.push(`\n## Other projects (inventory)`);
     for (const o of p.otherProjects) {
       const tag = o.repoLabel ? ` _(${o.repoLabel})_` : "";
-      L.push(`- ${o.type.join(" · ")} · ${o.span.from}→${o.span.to} · ${o.sessions} sess${tag}`);
+      L.push(`- ${o.type.join(" · ")} · ${o.span.from ?? "n/a"}→${o.span.to ?? "n/a"} · ${o.sessions} sess${tag}`);
     }
   }
 

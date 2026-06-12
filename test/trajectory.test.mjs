@@ -111,3 +111,31 @@ test("topics cluster web queries into themes per quarter", () => {
   assert.ok(q1.themes.some((th) => th.name === "design & UI"));
   assert.ok(q2.themes.some((th) => th.name === "data & schema"));
 });
+
+// --- the raw-candidates fallback (defect-to-test) ----------------------------
+// The fallback `vocabulary_adopted ?? vocabularyCandidates` shipped unfiltered
+// late-half words — which can include client and product names — into
+// candidate.json whenever the narrative omitted vocabulary_adopted. Vocabulary
+// is ONLY the narrative's filtered pick now; raw candidates never serialize.
+import { assembleProfile } from "../src/profile.mjs";
+
+const vocabArgs = (narrative) => ({
+  contact: { name: "X", email: "x@y.z", city: "C", status: "freelance" },
+  projects: [{ repo: "app", selected: true, type: ["feature-work"], from: "2026-05", to: "2026-05", sessions: 3, userMessages: 9, tech: [], landing: {}, researchToMutation: null, delegation: 0, topAreas: {} }],
+  narrative,
+  fingerprint: { totals: {} },
+  forensics: { score: 100 },
+  manifestHash: "h",
+  trajectory: { shifts: null, topics: [], vocabularyCandidates: ["acme-corp", "clientname"] },
+});
+
+test("raw vocabularyCandidates never reach candidate.json when the narrative omits its pick", () => {
+  const p = assembleProfile(vocabArgs({ summary: "works on things" }));
+  assert.deepEqual(p.trajectory.newVocabulary, []);
+  assert.ok(!JSON.stringify(p).includes("acme-corp"), "raw candidate words must not serialize");
+});
+
+test("the narrative's filtered vocabulary pick passes through unchanged", () => {
+  const p = assembleProfile(vocabArgs({ summary: "x", trajectory: { vocabulary_adopted: ["idempotency", "rls"] } }));
+  assert.deepEqual(p.trajectory.newVocabulary, ["idempotency", "rls"]);
+});

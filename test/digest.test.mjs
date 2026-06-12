@@ -110,3 +110,42 @@ test("classifies an audit-research project (lots of reads, few mutations)", () =
   const d = buildDigest(parsed);
   assert.ok(d.projects[0].type.includes("audit-research"));
 });
+
+// --- undated projects (defect-to-test) ---------------------------------------
+// A project whose messages carry no timestamps got `new Date(null)` → epoch →
+// "1970-01" as its span — a fabricated date in a tool whose rule is that every
+// claimed number must be verifiable. Undated spans are null now, and the
+// render shows "n/a" instead of an invented month.
+import { assembleProfile, renderMarkdown } from "../src/profile.mjs";
+
+test("a project with no parseable timestamps gets a null span, never the epoch", () => {
+  const parsed = {
+    source: "claude-code",
+    sessions: [{
+      sessionId: "u", cwdRaw: "/Users/x/Projects/undated-app",
+      cwdRedacted: "/Users/⟨user⟩/Projects/undated-app",
+      firstTs: undefined, lastTs: undefined,
+      chain: [{ uuid: "u-0", parentUuid: null, ts: undefined }],
+      messages: [{ role: "user", ts: undefined, textRedacted: "hello", toolUses: [], toolResults: [], usage: null }],
+    }],
+  };
+  const d = buildDigest(parsed);
+  assert.equal(d.projects[0].from, null);
+  assert.equal(d.projects[0].to, null);
+  assert.ok(!JSON.stringify(d.projects[0]).includes("1970-01"));
+});
+
+test("null spans render as n/a, not null→null", () => {
+  const p = assembleProfile({
+    contact: { name: "X", email: "x@y.z", city: "C", status: "freelance" },
+    projects: [
+      { repo: "undated", selected: true, type: ["feature-work"], from: null, to: null, sessions: 2, userMessages: 4, tech: [], landing: {}, researchToMutation: null, delegation: 0, topAreas: {} },
+      { repo: "inv", selected: false, type: ["feature-work"], from: null, to: null, sessions: 1, userMessages: 1, tech: [], landing: {}, researchToMutation: null, delegation: 0, topAreas: {} },
+    ],
+    narrative: null, fingerprint: { totals: {} }, forensics: { score: 100 }, manifestHash: "h",
+  });
+  const md = renderMarkdown(p);
+  assert.match(md, /n\/a→n\/a/);
+  assert.ok(!md.includes("null→null"));
+  assert.ok(!md.includes("1970-01"));
+});

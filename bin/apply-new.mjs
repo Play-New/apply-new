@@ -37,7 +37,7 @@ import { readClaudeCode } from "../src/adapters/claude-code.mjs";
 import { computeFingerprint } from "../src/fingerprint.mjs";
 import { computeForensics } from "../src/forensics.mjs";
 import { buildDigest } from "../src/digest.mjs";
-import { enrichRepo } from "../src/enrich.mjs";
+import { enrichRepo, describeContextGaps } from "../src/enrich.mjs";
 import { generateNarrative } from "../src/profile-llm.mjs";
 import { selectRepresentatives, assembleProfile, renderMarkdown, summarizeSources } from "../src/profile.mjs";
 import { buildContact } from "../src/contact.mjs";
@@ -110,6 +110,8 @@ async function loadProfileInputs(out) {
   console.log(`      ${digest.projectCount} products, ${selected.length}${flag("top") ? "" : " (adaptive 3-5)"} representative: ${selected.map((p) => `${p.repo}[${p.type[0]}]`).join(", ")}`);
 
   const enrichments = selected.map((p) => enrichRepo(p.cwdRaw));
+  const contextGap = describeContextGaps(enrichments);
+  if (contextGap) console.error(`      note: ${contextGap}`);
   const trajectory = buildTrajectory(parsed);
   const aiRelationship = computeAiRelationship(parsed);
   const agenticLiteracy = computeAgenticLiteracy(parsed);
@@ -179,6 +181,12 @@ async function cmdGenerate() {
 // Assemble + compute groundedness on the assembled draft + re-assemble with
 // the score embedded. Centralised so generate and finalize share it.
 function assembleWithGroundedness(args) {
+  // The raw vocabularyCandidates never enter the profile (they can carry
+  // client names) — so a narrative that omitted its filtered pick leaves
+  // newVocabulary empty. Say so instead of failing silently.
+  if (args.narrative && args.trajectory?.vocabularyCandidates?.length && !args.narrative.trajectory?.vocabulary_adopted?.length) {
+    console.error(`      note: the narrative has no trajectory.vocabulary_adopted — newVocabulary stays empty (raw candidates are never used; re-run the narrative step to fill it)`);
+  }
   const draft = assembleProfile(args);
   const groundedness = assessGroundedness(draft);
   return assembleProfile({ ...args, groundedness });

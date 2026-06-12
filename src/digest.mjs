@@ -142,8 +142,10 @@ export function buildDigest(parsed) {
         repo: p.repo,
         cwdRaw: p.cwdRaw, // local-only
         type: classify(ctx),
-        from: month(new Date(p.firstTs).toISOString()),
-        to: month(new Date(p.lastTs).toISOString()),
+        // Null when no message carried a timestamp — never the epoch. A
+        // fabricated "1970-01" is a claimed date the logs can't back.
+        from: p.firstTs ? month(new Date(p.firstTs).toISOString()) : null,
+        to: p.lastTs ? month(new Date(p.lastTs).toISOString()) : null,
         sessions: p.sessions,
         userMessages: p.userMessages,
         // Code-volume signal for representative selection (edits/writes landed).
