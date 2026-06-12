@@ -35,7 +35,7 @@ export function computeIntensity(parsed, { tz = DEFAULT_TZ } = {}) {
   const perSession = [];
   const perDaySessions = new Map(); // active day → # sessions active that day
   const perDayToolCalls = new Map(); // session-open day → tool calls
-  const activeDays = new Set(); // shared definition: days with real message activity
+  const allMsgTs = []; // every message timestamp — the active-day source, shared with the fingerprint
   let firstTs = Infinity;
   let lastTs = -Infinity;
 
@@ -51,14 +51,14 @@ export function computeIntensity(parsed, { tz = DEFAULT_TZ } = {}) {
     for (const m of s.messages ?? []) {
       toolCalls += (m.toolUses?.length ?? 0);
       const mt = m.ts ? Date.parse(m.ts) : NaN;
-      if (Number.isFinite(mt)) dayHits.add(dayKey(mt));
+      if (Number.isFinite(mt)) { allMsgTs.push(mt); dayHits.add(dayKey(mt)); }
     }
-    if (dayHits.size === 0) dayHits.add(dayKey(start)); // fallback: session-open day
     perSession.push({ start, end, toolCalls });
-    for (const d of dayHits) {
-      activeDays.add(d);
-      perDaySessions.set(d, (perDaySessions.get(d) ?? 0) + 1);
-    }
+    // NO session-open fallback. firstTs can come from a non-message record
+    // (system row, file-history snapshot), but the fingerprint counts message
+    // timestamps only — so a timestamped, message-empty session must contribute
+    // zero active days here too, or the two diverge.
+    for (const d of dayHits) perDaySessions.set(d, (perDaySessions.get(d) ?? 0) + 1);
     // Tool-call volume is attributed to the day the session opened (peak-day proxy).
     const openDay = dayKey(start);
     perDayToolCalls.set(openDay, (perDayToolCalls.get(openDay) ?? 0) + toolCalls);
@@ -67,9 +67,17 @@ export function computeIntensity(parsed, { tz = DEFAULT_TZ } = {}) {
   }
   if (!perSession.length) return null;
 
-  // Observed window in days, inclusive.
-  const observedDays = Math.max(1, Math.round((lastTs - firstTs) / DAY_MS) + 1);
-  const activeDaysCount = activeDays.size;
+  // activeDays via the SHARED definition: the exact call the fingerprint makes,
+  // over message timestamps. The two cannot diverge.
+  const activeDayKeySet = activeDayKeys(allMsgTs, tz);
+  const activeDaysCount = activeDayKeySet.size;
+
+  // observedDays from inclusive day KEYS in the same recorded zone — not a raw-ms
+  // window, which can round below the day-bucket count (a 90-min session across
+  // midnight is 2 active days in 1 rounded ms-day -> 200%). This makes
+  // activeDays <= observedDays hold by construction in every zone.
+  const dayCount = (a, b) => Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / DAY_MS) + 1;
+  const observedDays = Math.max(1, dayCount(dayKey(firstTs), dayKey(lastTs)));
   const activeDaysRatio = +(activeDaysCount / observedDays).toFixed(2);
 
   // Median sessions per active day (NOT per observed day — we want the cadence
@@ -82,7 +90,7 @@ export function computeIntensity(parsed, { tz = DEFAULT_TZ } = {}) {
   const medianSessionToolCalls = median(toolCallsPerSession);
 
   // Longest consecutive-active-days streak.
-  const dayStamps = [...activeDays].sort();
+  const dayStamps = [...activeDayKeySet].sort();
   let longestStreak = 0;
   let currentStreak = 0;
   let prev = null;

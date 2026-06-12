@@ -7,7 +7,7 @@
 // edited after generation without the hashes diverging.
 
 import { createHash } from "node:crypto";
-import { activeDayKeys, DEFAULT_TZ } from "./days.mjs";
+import { activeDayKeys, dayKeyFor, DEFAULT_TZ } from "./days.mjs";
 
 const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 const ms = (iso) => (iso ? Date.parse(iso) : NaN);
@@ -83,6 +83,7 @@ export function computeFingerprint(parsed, { tz = DEFAULT_TZ } = {}) {
   allTs = allTs.filter(Number.isFinite).sort((a, b) => a - b);
   // Shared definition: distinct days carrying real message activity, bucketed in
   // `tz` (default UTC — identical to the prior toISOString bucketing).
+  const dayKey = dayKeyFor(tz);
   const days = activeDayKeys(allTs, tz);
   const latSorted = [...latencies].sort((a, b) => a - b);
 
@@ -101,8 +102,10 @@ export function computeFingerprint(parsed, { tz = DEFAULT_TZ } = {}) {
       toolUses,
       activeDays: days.size,
       activeDaysTimezone: tz, // recorded so the count is reproducible (CONTRIBUTING: determinism)
-      firstDay: allTs.length ? new Date(allTs[0]).toISOString().slice(0, 10) : null,
-      lastDay: allTs.length ? new Date(allTs.at(-1)).toISOString().slice(0, 10) : null,
+      // firstDay/lastDay bucket in the SAME zone as activeDays — otherwise a
+      // UTC span could be self-reportedly shorter than the tz-bucketed activeDays.
+      firstDay: allTs.length ? dayKey(allTs[0]) : null,
+      lastDay: allTs.length ? dayKey(allTs.at(-1)) : null,
     },
     tokens,
     toolHistogram,

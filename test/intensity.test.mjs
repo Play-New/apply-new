@@ -104,3 +104,31 @@ test("records the timezone used, and buckets in an explicit zone (not host-local
   assert.equal(rome.timezone, "Europe/Rome");
   assert.equal(rome.activeDays, 1);
 });
+
+test("a timestamped session with NO messages contributes zero active days (converges)", () => {
+  // firstTs is set (a system / file-history record carries a timestamp) but the
+  // message list is empty. The fingerprint reads message timestamps only, so
+  // intensity must count zero active days here too — no session-open fallback.
+  const parsed = {
+    source: "test", files: [],
+    sessions: [{
+      sessionId: "empty", projectLabel: "p", models: [], cliVersions: [],
+      firstTs: "2026-01-01T10:00:00Z", lastTs: "2026-01-01T10:00:00Z", messages: [],
+    }],
+  };
+  const i = computeIntensity(parsed);
+  const fp = computeFingerprint(parsed);
+  assert.equal(i.activeDays, fp.totals.activeDays); // both 0 — no divergence
+  assert.equal(i.activeDays, 0);
+  assert.equal(i.medianSessionsPerActiveDay, 0); // no phantom 1-session day
+});
+
+test("activeDays never exceeds observedDays (midnight-straddling session)", () => {
+  // ~60-minute session crossing midnight UTC: two active day-keys inside a
+  // sub-day ms window. observedDays is day-bucketed too, so the ratio is <= 100%.
+  const parsed = { source: "test", files: [], sessions: [psess("x", ["2026-01-01T23:30:00Z", "2026-01-02T00:30:00Z"])] };
+  const i = computeIntensity(parsed);
+  assert.equal(i.activeDays, 2);
+  assert.ok(i.observedDays >= i.activeDays, `observedDays ${i.observedDays} < activeDays ${i.activeDays}`);
+  assert.ok(i.activeDaysRatio <= 1, `ratio ${i.activeDaysRatio} > 1`);
+});

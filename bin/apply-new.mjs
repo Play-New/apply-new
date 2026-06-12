@@ -66,6 +66,16 @@ const flag = (n, d = null) => {
 const has = (n) => argv.includes(`--${n}`);
 const tryGit = (k) => { try { return execSync(`git config ${k}`, { encoding: "utf8" }).trim() || null; } catch { return null; } };
 
+// Validate --tz up front, before reading any logs — an unknown zone should fail
+// fast, not throw mid-pipeline from inside Intl.DateTimeFormat.
+const tzFlag = flag("tz", DEFAULT_TZ);
+try {
+  new Intl.DateTimeFormat("en-CA", { timeZone: tzFlag }).format(0);
+} catch {
+  console.error(`Invalid --tz "${tzFlag}". Expected an IANA timezone, e.g. UTC or Europe/Rome.`);
+  process.exit(2);
+}
+
 // Every generated file (narrative-input.json, narrative.json, candidate.json,
 // profile.md) lands in ./out — never in the repo root.
 const OUT_DIR = "out";
@@ -86,7 +96,8 @@ async function loadProfileInputs(out) {
 
   // Timezone the day-based counts (activeDays, streak) are bucketed in. Default
   // UTC (machine-independent); recorded in the profile so the count reproduces.
-  const tz = flag("tz", DEFAULT_TZ);
+  // Validated at startup (tzFlag) before any logs are read.
+  const tz = tzFlag;
 
   console.log(`[2/5] Fingerprint, manifest, consistency ...`);
   const fingerprint = computeFingerprint(parsed, { tz });
