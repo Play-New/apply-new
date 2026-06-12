@@ -18,6 +18,8 @@
 //   --name "Giulia" --email g@x.io --city Milano --status freelance
 //   --top 4                        # force the number of representative projects
 //                                  # (default: adaptive, 3 to 5)
+//   --tz Europe/Rome               # timezone for day-based counts (activeDays,
+//                                  # streak). Default UTC; recorded in the profile.
 //   --narrative-file narrative.json
 //   --endpoint https://...         # override PLAYNEW_INTAKE_URL for submit
 //
@@ -47,6 +49,7 @@ import { computeAiRelationship } from "../src/ai-relationship.mjs";
 import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
 import { computeIntensity } from "../src/intensity.mjs";
 import { computeDistribution } from "../src/distribution.mjs";
+import { DEFAULT_TZ } from "../src/days.mjs";
 
 const SUB_COMMANDS = new Set(["generate", "prepare", "finalize", "submit"]);
 
@@ -62,6 +65,16 @@ const flag = (n, d = null) => {
 };
 const has = (n) => argv.includes(`--${n}`);
 const tryGit = (k) => { try { return execSync(`git config ${k}`, { encoding: "utf8" }).trim() || null; } catch { return null; } };
+
+// Validate --tz up front, before reading any logs — an unknown zone should fail
+// fast, not throw mid-pipeline from inside Intl.DateTimeFormat.
+const tzFlag = flag("tz", DEFAULT_TZ);
+try {
+  new Intl.DateTimeFormat("en-CA", { timeZone: tzFlag }).format(0);
+} catch {
+  console.error(`Invalid --tz "${tzFlag}". Expected an IANA timezone, e.g. UTC or Europe/Rome.`);
+  process.exit(2);
+}
 
 // Every generated file (narrative-input.json, narrative.json, candidate.json,
 // profile.md) lands in ./out — never in the repo root.
@@ -81,8 +94,13 @@ async function loadProfileInputs(out) {
   const parsed = readClaudeCode(root);
   console.log(`      ${parsed.sessions.length} sessions, ${parsed.files.length} files`);
 
+  // Timezone the day-based counts (activeDays, streak) are bucketed in. Default
+  // UTC (machine-independent); recorded in the profile so the count reproduces.
+  // Validated at startup (tzFlag) before any logs are read.
+  const tz = tzFlag;
+
   console.log(`[2/5] Fingerprint, manifest, consistency ...`);
-  const fingerprint = computeFingerprint(parsed);
+  const fingerprint = computeFingerprint(parsed, { tz });
   const forensics = computeForensics(parsed);
 
   console.log(`[3/5] Deep digest + per-repo clustering (PII redacted: ${parsed.redaction.hits}) ...`);
@@ -95,7 +113,7 @@ async function loadProfileInputs(out) {
   const trajectory = buildTrajectory(parsed);
   const aiRelationship = computeAiRelationship(parsed);
   const agenticLiteracy = computeAgenticLiteracy(parsed);
-  const intensity = computeIntensity(parsed);
+  const intensity = computeIntensity(parsed, { tz });
   const distribution = computeDistribution(projects);
   const sources = summarizeSources(parsed);
   return { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, sources, out };

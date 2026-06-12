@@ -345,7 +345,8 @@ export function renderMarkdown(p) {
   if (p.intensity) {
     const i = p.intensity;
     L.push(`\n## Practice intensity`);
-    L.push(`- Active days: ${i.activeDays} / ${i.observedDays} (${Math.round(i.activeDaysRatio * 100)}%)`);
+    const tzNote = i.timezone && i.timezone !== "UTC" ? ` (days counted in ${i.timezone})` : "";
+    L.push(`- Active days: ${i.activeDays} / ${i.observedDays} (${Math.round(i.activeDaysRatio * 100)}%)${tzNote}`);
     L.push(`- Median sessions per active day: ${i.medianSessionsPerActiveDay}`);
     L.push(`- Median session depth: ${i.medianSessionToolCalls} tool calls`);
     L.push(`- Longest streak: ${i.longestStreak} consecutive days`);
