@@ -39,7 +39,7 @@ import { computeForensics } from "../src/forensics.mjs";
 import { buildDigest } from "../src/digest.mjs";
 import { enrichRepo } from "../src/enrich.mjs";
 import { generateNarrative } from "../src/profile-llm.mjs";
-import { selectRepresentatives, assembleProfile, renderMarkdown } from "../src/profile.mjs";
+import { selectRepresentatives, assembleProfile, renderMarkdown, summarizeSources } from "../src/profile.mjs";
 import { buildContact } from "../src/contact.mjs";
 import { submitProfile } from "../src/submit.mjs";
 import { buildTrajectory } from "../src/trajectory.mjs";
@@ -115,7 +115,8 @@ async function loadProfileInputs(out) {
   const agenticLiteracy = computeAgenticLiteracy(parsed);
   const intensity = computeIntensity(parsed, { tz });
   const distribution = computeDistribution(projects);
-  return { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, out };
+  const sources = summarizeSources(parsed);
+  return { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, sources, out };
 }
 
 function resolveContact() {
@@ -140,7 +141,7 @@ function writeProfile(out, profile) {
 async function cmdGenerate() {
   const out = outDir();
   console.log(`\napply-new generate\n`);
-  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution } = await loadProfileInputs(out);
+  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, sources } = await loadProfileInputs(out);
   const { contact, errors } = resolveContact();
   if (errors.length) {
     console.error("\nMissing contact fields:");
@@ -170,7 +171,7 @@ async function cmdGenerate() {
 
   console.log(`[5/5] Assembling and saving ...\n`);
   writeProfile(out, assembleWithGroundedness({
-    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship, agenticLiteracy, intensity, distribution,
+    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, sources,
     manifestHash: fingerprint.manifest.bundleHash,
   }));
 }
@@ -210,7 +211,7 @@ async function cmdFinalize() {
     console.error(`Missing ${narrativeFile}. Run apply-new prepare first, then write ${OUT_DIR}/narrative.json.`);
     process.exit(2);
   }
-  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution } = await loadProfileInputs(out);
+  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, sources } = await loadProfileInputs(out);
   const { contact, errors } = resolveContact();
   if (errors.length) {
     console.error("\nMissing contact fields:");
@@ -228,7 +229,7 @@ async function cmdFinalize() {
     compactionSummaries: parsed.compactionSummaries,
   });
   writeProfile(out, assembleWithGroundedness({
-    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship, agenticLiteracy, intensity, distribution,
+    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, sources,
     manifestHash: fingerprint.manifest.bundleHash,
   }));
 }
@@ -280,12 +281,14 @@ async function cmdSubmit() {
   // the logs (the ground truth the profile claims to describe).
   console.log(`\nConsistency check`);
   const issues = [...assessStructure(profile).issues];
+  let excessClaims = 0;
   let root = flag("root", join(homedir(), ".claude", "projects"));
   if (flag("project")) root = join(root, flag("project"));
   if (existsSync(root)) {
     const digest = buildDigest(readClaudeCode(root));
     const logs = assessAgainstLogs(profile, digest.projects);
     issues.push(...logs.issues);
+    excessClaims = logs.excessClaims || 0;
     for (const w of logs.warnings) console.log(`  ~ ${w}`);
   } else {
     console.log(`  ~ no logs at ${root}, skipping log re-derivation (pass --root if they live elsewhere)`);
@@ -293,7 +296,19 @@ async function cmdSubmit() {
   if (issues.length) {
     console.log(`  The structured data does not match ${existsSync(root) ? "your logs / its own invariants" : "its own invariants"}:`);
     for (const i of issues) console.log(`    - ${i}`);
-    console.log(`  If your logs were pruned since generation, regenerate (apply-new generate).`);
+    if (excessClaims > 0) {
+      // Claims exceed what the logs can prove now. Since normal use only ever
+      // GROWS the logs, the usual cause is Claude Code's cleanup pruning the
+      // oldest sessions between generation and submit — not anything the
+      // candidate did wrong.
+      console.log(`  Your profile claims more than your logs can prove right now. The usual cause:`);
+      console.log(`  Claude Code prunes sessions older than its cleanup period (~30 days by default),`);
+      console.log(`  and the oldest part of your window aged out after the profile was generated.`);
+      console.log(`  Nothing is wrong with what you did — the numbers are just stale.`);
+      console.log(`  Fix: regenerate now and submit right away (apply-new generate, or re-run /apply-new).`);
+    } else {
+      console.log(`  If your logs were pruned since generation, regenerate (apply-new generate).`);
+    }
   } else {
     console.log(`  structured data is internally consistent and matches your logs`);
   }

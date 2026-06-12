@@ -32,6 +32,23 @@ test("ephemeral sandbox paths are excluded from the digest", () => {
   assert.equal(d.projects[0].repo, "real-repo");
 });
 
+test("ephemeral filter is anchored to scratch roots: user dirs named tmp/private are kept", () => {
+  const mk = (sid, cwd) => session(sid, cwd, ["2026-01-01T10:00:00Z"], [user("x", "2026-01-01T10:00:00Z")]);
+  const parsed = {
+    source: "claude-code",
+    sessions: [
+      mk("a", "/Users/matteo/tmp/scratchpad-app"),      // kept: tmp/ inside HOME is a real dir
+      mk("b", "/Users/matteo/private-notes/journal"),   // kept: merely contains "private"
+      mk("c", "/tmp/throwaway"),                        // dropped: scratch root
+      mk("d", "/private/tmp/claude-501/task"),          // dropped: macOS alias of /tmp
+      mk("e", "/var/folders/ab/cd/T/work"),             // dropped: macOS per-user scratch
+      mk("f", "/private/var/folders/zz/yy/T/job"),      // dropped: aliased form
+    ],
+  };
+  const d = buildDigest(parsed);
+  assert.deepEqual(d.projects.map((p) => p.repo).sort(), ["journal", "scratchpad-app"]);
+});
+
 test("classifies a sustained product build with many commits", () => {
   const cwd = "/Users/matteo/Github/big-product";
   const msgs = [];

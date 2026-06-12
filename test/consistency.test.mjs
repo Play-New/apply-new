@@ -85,3 +85,32 @@ test("logs: growth since generation is fine (logs only grow until pruning)", () 
   const { issues } = assessAgainstLogs(honestProfile(), grown);
   assert.deepEqual(issues, []);
 });
+
+// The pruning signature: claims exceeding the logs. Normal use only grows the
+// logs, so excessClaims > 0 means either post-generation pruning (the common,
+// innocent case submit now explains) or hand-inflation — never ongoing use.
+test("logs: excessClaims counts claims-exceed-logs issues (pruning signature)", () => {
+  const p = honestProfile();
+  p.volume.sessions = 99; // logs were pruned (or the file inflated) after generation
+  p.projects[0].sessions = 19;
+  const { issues, excessClaims } = assessAgainstLogs(p, digestProjects());
+  assert.equal(excessClaims, 2);
+  assert.equal(issues.length, 2);
+});
+
+test("logs: excessClaims is 0 on an honest profile, and when logs merely grew", () => {
+  assert.equal(assessAgainstLogs(honestProfile(), digestProjects()).excessClaims, 0);
+  const grown = digestProjects();
+  grown[0].sessions += 50; // logs grew since generation: one-directional gate stays green
+  const { issues, excessClaims } = assessAgainstLogs(honestProfile(), grown);
+  assert.equal(excessClaims, 0);
+  assert.deepEqual(issues, []);
+});
+
+test("logs: a project missing from the logs is an issue but not an excess claim", () => {
+  const p = honestProfile();
+  p.projects[0].repoLabel = "never-existed";
+  const { issues, excessClaims } = assessAgainstLogs(p, digestProjects());
+  assert.ok(issues.some((i) => i.includes("no such project")));
+  assert.equal(excessClaims, 0);
+});

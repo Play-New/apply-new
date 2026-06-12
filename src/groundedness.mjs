@@ -104,6 +104,8 @@ function collectSupportPool(profile) {
   addNumber(profile?.volume?.products);
   addNumber(profile?.volume?.instructions);
   addNumber(profile?.authenticity?.score);
+  // Per-source capture counts are citable ("941 sessions read from …")
+  for (const s of profile?.sources ?? []) addNumber(s.sessions);
   addText(profile?.window?.from);
   addText(profile?.window?.to);
 

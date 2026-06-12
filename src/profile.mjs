@@ -143,9 +143,45 @@ function cognitiveTags(projects, fingerprint) {
   return tags;
 }
 
+// --- sources ------------------------------------------------------------------
+
+// Capture level per source. "full" = tamper-evident records the forensic
+// screen can actually verify (request ids, signatures, usage shapes);
+// "structural" = well-formed session data with no verification story.
+// Unknown sources default to structural — honesty about what we can't verify.
+const CAPTURE_LEVEL = { "claude-code": "full" };
+
+// Per-source coverage summary for the profile: which sources were read, at
+// what capture level, how many sessions each contributed, over which months.
+// Counts here are CAPTURE counts (everything read, ephemeral included), so
+// they are an upper bound on what enters the profile — and the profile's own
+// window/counts stay lower bounds of the candidate's real activity, because
+// logs rotate and old sessions are pruned.
+export function summarizeSources(parsed) {
+  if (!parsed?.sessions?.length) return null;
+  const by = new Map();
+  for (const s of parsed.sessions) {
+    const key = s.source || "claude-code";
+    const e = by.get(key) || { source: key, sessions: 0, from: null, to: null };
+    e.sessions++;
+    const from = typeof s.firstTs === "string" ? s.firstTs.slice(0, 7) : null;
+    const to = typeof s.lastTs === "string" ? s.lastTs.slice(0, 7) : from;
+    if (from && (!e.from || from < e.from)) e.from = from;
+    if (to && (!e.to || to > e.to)) e.to = to;
+    by.set(key, e);
+  }
+  return [...by.values()].map((e) => ({
+    source: e.source,
+    captureLevel: CAPTURE_LEVEL[e.source] ?? "structural",
+    sessions: e.sessions,
+    window: e.from ? { from: e.from, to: e.to } : null,
+    backend: null, // adapters with multiple read paths (e.g. sqlite vs JSON cache) fill this in
+  }));
+}
+
 // --- assemble ----------------------------------------------------------------
 
-export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory, groundedness, aiRelationship, agenticLiteracy, intensity, distribution }) {
+export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory, groundedness, aiRelationship, agenticLiteracy, intensity, distribution, sources }) {
   const froms = projects.map((p) => p.from).filter(Boolean).sort();
   const tos = projects.map((p) => p.to).filter(Boolean).sort();
   const selected = projects.filter((p) => p.selected);
@@ -163,6 +199,10 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
       sessions: projects.reduce((n, p) => n + p.sessions, 0),
       instructions: projects.reduce((n, p) => n + p.userMessages, 0),
     },
+    // Coverage disclosure (optional; absent on profiles from older versions).
+    // What was read, at what capture level — the profile's own honesty about
+    // its inputs. Spread keeps the old shape byte-identical when absent.
+    ...(sources?.length ? { sources } : {}),
     summary: narrative?.summary || null,
     // Aggregate fields of work, derived by the LLM from per-product evidence.
     // Counts, not names: each entry is { label, products, sessions, note? }.
@@ -226,7 +266,15 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
         }
       : null,
     stackAdopted: [...new Set(projects.flatMap((p) => p.tech))],
-    authenticity: { score: forensics?.score ?? null, manifestHash: manifestHash || null, note: "screen, not proof" },
+    authenticity: {
+      score: forensics?.score ?? null,
+      manifestHash: manifestHash || null,
+      // The forensic checks inspect tamper-evident fields only full-capture
+      // sources carry; say so the moment a structural source is in the mix.
+      note: sources?.some((s) => s.captureLevel !== "full")
+        ? "screen, not proof; verifies full-capture sources only"
+        : "screen, not proof",
+    },
     groundedness: groundedness
       ? { score: groundedness.score, supported: groundedness.supported, total: groundedness.total }
       : null,
@@ -248,6 +296,13 @@ export function renderMarkdown(p) {
     `Window: ${p.window.from} → ${p.window.to} · ${p.volume.sessions} sessions · ${p.volume.instructions} instructions · ${p.volume.products} products`,
   );
   L.push(`Log consistency screen: ${p.authenticity.score}/100 (${p.authenticity.note})`);
+  if (p.sources?.length) {
+    const src = p.sources
+      .map((s) => `${s.source} (${s.captureLevel} capture${s.backend ? `, ${s.backend}` : ""}) · ${s.sessions} sessions read`)
+      .join(" · ");
+    L.push(`Sources: ${src}`);
+    L.push(`Window and counts are lower bounds: logs rotate and old sessions are pruned.`);
+  }
   if (p.summary) L.push(`\n${p.summary}`);
 
   if (p.domains?.length) {

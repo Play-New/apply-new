@@ -25,9 +25,16 @@ function check(id, label, severity, status, detail) {
   return { id, label, severity, status, detail };
 }
 
+// Verification scope: only full-capture sources carry the tamper-evident
+// fields these checks inspect (request ids, signatures, usage shapes).
+// Sessions from structural sources are excluded up front rather than allowed
+// to pass the prefix checks vacuously on their null ids. A missing source tag
+// (older bundles, test fixtures) defaults to claude-code.
+const FULL_CAPTURE_SOURCES = new Set(["claude-code"]);
+
 export function computeForensics(parsed) {
   const checks = [];
-  const sessions = parsed.sessions;
+  const sessions = parsed.sessions.filter((s) => FULL_CAPTURE_SOURCES.has(s.source || "claude-code"));
 
   // Global maps across all files/sidechains: a parent may live in another file
   // of the same (resumed or sub-agent) session.
