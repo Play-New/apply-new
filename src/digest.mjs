@@ -83,6 +83,12 @@ function classify(p) {
 
 const DESIGN_RE = /design|ui\b|typograph|layout|figma|css|color|grid|font|spacing|aesthet/i;
 
+// Generic agent-launcher commands: a session that runs one of these dispatched
+// work to another agent CLI — evidence of orchestration, independent of any one
+// framework. Counted per product from the shell history the digest already
+// captures. Extend the list as new agent CLIs appear.
+const AGENT_LAUNCHER_RE = /\b(?:claude\s+(?:-p\b|--print\b)|opencode\s+run\b|crush\s+run\b|aider\b|codex(?:\s+exec)?\b|goose\s+run\b|cursor-agent\b)/gi;
+
 export function buildDigest(parsed) {
   const byRepo = new Map();
 
@@ -93,12 +99,15 @@ export function buildDigest(parsed) {
     if (!byRepo.has(key)) {
       byRepo.set(key, {
         repo: key, cwdRaw: s.cwdRaw || "", sessions: 0, userMessages: 0, prompts: [],
-        toolHist: {}, areas: {}, cmds: [], webQueries: [],
+        toolHist: {}, areas: {}, cmds: [], webQueries: [], sources: {},
         delegation: 0, planning: 0, firstTs: null, lastTs: null,
       });
     }
     const p = byRepo.get(key);
     p.sessions++;
+    // Which tool produced this session — a product touched by more than one
+    // agent CLI is a fan-out signal: one tool is orchestrating the others.
+    p.sources[s.source || "unknown"] = (p.sources[s.source || "unknown"] || 0) + 1;
     for (const m of s.messages) {
       const t = ms(m.ts);
       if (Number.isFinite(t)) {
@@ -131,6 +140,7 @@ export function buildDigest(parsed) {
       const commits = (cmdsText.match(/git commit/g) || []).length;
       const reverts = (cmdsText.match(/git revert|git reset --hard|git checkout -- /g) || []).length;
       const designQueries = p.webQueries.filter((q) => DESIGN_RE.test(q)).length;
+      const dispatchCommands = (cmdsText.match(AGENT_LAUNCHER_RE) || []).length;
       const ctx = {
         mutations, designQueries,
         researchToMutation: mutations ? +(research / mutations).toFixed(2) : null,
@@ -158,6 +168,15 @@ export function buildDigest(parsed) {
           revertChurn: commits ? (reverts / Math.max(commits, 1) > 0.3 ? "high" : reverts > 0 ? "med" : "low") : "n/d",
         },
         delegation: p.delegation,
+        // Orchestration / fan-out: how many distinct agent CLIs touched this
+        // product, and how many agent-dispatch commands its sessions ran.
+        // Multi-tool (toolCount > 1) or dispatchCommands > 0 ⇒ work was farmed
+        // out to other agents, not all hands-on. Framework-agnostic.
+        orchestration: {
+          tools: p.sources,
+          toolCount: Object.keys(p.sources).length,
+          dispatchCommands,
+        },
         researchToMutation: ctx.researchToMutation,
         learningTopics: [...new Set(p.webQueries)].slice(0, 12),
         promptSamples: samplePrompts(p.prompts),
