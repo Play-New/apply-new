@@ -14,6 +14,8 @@
 // Designed to be transparent: every flagged anchor is shown to the candidate
 // before submission so they can re-generate or edit if something is off.
 
+import { labelVocabulary } from "./digest.mjs";
+
 // Stack tokens AND AI-tooling vocabulary. A narrative that says "Claude" or
 // "SDK" or "MCP" is referring to general AI/dev primitives that are part of
 // the trajectory even when not listed in a project's `tech` array. We treat
@@ -24,6 +26,20 @@ const TECH_NAMES = [
   "Supabase","Postgres","Inngest","Playwright","Tailwind","shadcn","Zod","Prisma","Next.js","React",
   "Stripe","Drizzle","Brevo","Resend","Vercel","TypeScript","Python","Node","Vitest","Jest","ESLint",
 ];
+
+// The lexicon the prose is checked against = the hardcoded names ABOVE plus
+// every label the detector can emit (src/digest.mjs labelVocabulary()),
+// tokenised exactly as the support pool is (splitTech), so a token a narrative
+// cites matches a token the pool carries. Deriving it from the same maps means
+// detection and verification can never drift apart. A stoplist drops the generic
+// English words that leak from descriptive labels ("event-driven jobs",
+// "analytics") so they don't become spurious tech anchors.
+const LEXICON_STOP = new Set([
+  "event-driven", "jobs", "rich", "text", "analytics", "email", "headless",
+  "cms", "pdf", "monorepo", "google", "motion", "hook", "form", "shell",
+]);
+const TECH_LEXICON = [...new Set([...TECH_NAMES, ...labelVocabulary()].flatMap(splitTech))]
+  .filter((t) => t.length >= 3 && !LEXICON_STOP.has(t));
 
 // AI-tooling vocabulary — always considered grounded, since the candidate is
 // (by definition) using these tools to participate in Apply New.
@@ -66,7 +82,7 @@ function extractAnchors(text) {
   // Technology names — case-insensitive but anchored on word boundary.
   // AI-tooling words are pre-grounded (a candidate using Apply New is using
   // Claude / an SDK / an MCP server / agents by definition).
-  for (const t of TECH_NAMES) {
+  for (const t of TECH_LEXICON) {
     const re = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
     if (re.test(text)) anchors.push({ kind: "tech", value: t.toLowerCase(), raw: t });
   }

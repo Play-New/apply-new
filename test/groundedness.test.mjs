@@ -74,3 +74,20 @@ test("score is null when there are too few anchors to judge", () => {
   const g = assessGroundedness(p);
   assert.equal(g.score, null);
 });
+
+test("a detector-vocabulary technology (Firebase) is verified, not invisible", () => {
+  // Firebase is NOT in the hardcoded TECH_NAMES — it comes from the detector's
+  // label vocabulary. Before the lexicon was shared, citing it was neither
+  // supported nor flagged. Now: flagged when absent, supported when in the stack.
+  const absent = baseProfile();
+  absent.cognitive.narrative = "The data layer runs on Firebase.";
+  assert.ok(assessGroundedness(absent).anomalies.some((a) => a.where === "cognitive.narrative" && a.kind === "tech"),
+    "Firebase absent from the stack should be flagged");
+
+  const present = baseProfile();
+  present.projects[0].tech = [...present.projects[0].tech, "Firebase/Firestore"];
+  present.stackAdopted = [...present.stackAdopted, "Firebase/Firestore"];
+  present.cognitive.narrative = "The data layer runs on Firebase.";
+  assert.ok(!assessGroundedness(present).anomalies.some((a) => a.where === "cognitive.narrative" && a.kind === "tech"),
+    "Firebase in the stack should be supported, not flagged");
+});

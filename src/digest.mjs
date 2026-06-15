@@ -6,6 +6,9 @@
 // learning trajectory (what was searched for). Everything stays redacted and
 // keyed by repo, so worktrees of one product collapse into one project.
 
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+
 const ms = (iso) => (iso ? Date.parse(iso) : NaN);
 const month = (iso) => (iso ? new Date(ms(iso)).toISOString().slice(0, 7) : null);
 
@@ -39,26 +42,151 @@ function toArea(path, key) {
   return parts.slice(0, 3).join("/") || null;
 }
 
-const TECH = [
-  [/supabase/i, "Supabase/Postgres"],
-  [/inngest/i, "Inngest (job event-driven)"],
-  [/playwright|\/e2e\//i, "Playwright (E2E)"],
-  [/tailwind/i, "Tailwind"],
-  [/shadcn/i, "shadcn/ui"],
-  [/\bzod\b/i, "Zod"],
-  [/prisma/i, "Prisma"],
-  [/next\.config|\/app\/.*\.tsx?$/i, "Next.js/React"],
-  [/vite\.config|\bvite\b/i, "Vite/React"],
-  [/drizzle/i, "Drizzle"],
-  [/stripe/i, "Stripe"],
-  [/fastapi|uvicorn|\bstarlette\b/i, "FastAPI"],
-  [/\.py$|pyproject\.toml|requirements\.txt/i, "Python"],
-];
-const detectTech = (blobs) => {
-  const f = new Set();
-  for (const s of blobs) for (const [re, l] of TECH) if (re.test(s)) f.add(l);
-  return [...f];
+// --- Stack detection -------------------------------------------------------
+//
+// Two evidence streams, merged. They answer different questions and both belong:
+//   1. package.json DEPENDENCIES across workspaces — what the project *uses*.
+//   2. The files and commands the sessions actually TOUCHED — what the candidate
+//      *worked with*, anchored to evidence (file extensions + command text).
+//
+// We never read .env, not even key names (CONTRIBUTING: privacy — "the tool
+// never opens your secrets file"). The cost is that services integrated only
+// over REST (an API key, no npm package) are not auto-detected; that is a
+// disclosed boundary (see the stack note in src/profile.mjs), not a silent miss.
+//
+// Path heuristics are NOT used for libraries: a route that contains the word
+// "prisma" or a stray vite.config is not evidence the project depends on it.
+// Libraries come from dependencies; languages/formats from touched extensions;
+// runnable tools from command text.
+
+// File extension -> language/format label. The "extension tally": a touched
+// file is direct evidence the candidate worked with that language/format.
+const EXT_LABELS = {
+  py: "Python", rb: "Ruby", go: "Go", rs: "Rust", java: "Java", kt: "Kotlin",
+  swift: "Swift", php: "PHP", sql: "SQL", sh: "Shell", vue: "Vue",
+  svelte: "Svelte", mdx: "MDX", tf: "Terraform", proto: "Protobuf",
 };
+
+// Command-text evidence: tools that surface in what the candidate actually RAN
+// and that dependency scanning can't see (Python-ecosystem tools, deploy CLIs).
+// LIBRARIES are deliberately NOT detected here — they come from dependencies
+// only, so a library merely mentioned in a command never becomes a false
+// positive (this is what produced the spurious "Prisma" the issue flagged).
+// Anchored to a whitespace-delimited token so `cat docs/fastapi-notes.md` does
+// NOT match — only a tool in executable/argument position does.
+const CMD_LABELS = [
+  [/(?:^|\s)(?:uvicorn|fastapi|starlette)(?:\s|$)/im, "FastAPI"],
+  [/(?:^|\s)pytest(?:\s|$)/im, "pytest"],
+  [/(?:^|\s)wrangler(?:\s|$)/im, "Cloudflare"],
+];
+
+// Dependency name -> label. Authoritative for libraries.
+const DEP_LABELS = [
+  [/^next$|^react$/, "Next.js/React"], [/^typescript$/, "TypeScript"], [/^vite$/, "Vite"],
+  [/supabase/, "Supabase"], [/^pg$|^postgres/, "Postgres"], [/^firebase/, "Firebase/Firestore"],
+  [/inngest/, "Inngest (event-driven jobs)"], [/strapi/, "Strapi (headless CMS)"], [/cloudinary/, "Cloudinary"],
+  [/^stripe$/, "Stripe"], [/next-auth/, "NextAuth"], [/resend/, "Resend (email)"],
+  [/posthog/, "PostHog (analytics)"], [/anthropic/, "Anthropic SDK"], [/^openai$/, "OpenAI"],
+  [/google\/gen|generative-ai/, "Google Gemini"], [/elevenlabs/, "ElevenLabs"], [/vercel/, "Vercel"],
+  [/tailwind/, "Tailwind"], [/shadcn/, "shadcn/ui"], [/radix/, "Radix UI"],
+  [/framer-motion/, "Framer Motion"], [/recharts/, "Recharts"], [/tiptap/, "TipTap (rich text)"],
+  [/react-pdf|jspdf/, "React-PDF"], [/puppeteer|chromium/, "Puppeteer (PDF)"], [/^docx$|mammoth/, "docx/mammoth"],
+  [/mdx/, "MDX"], [/react-hook-form/, "React Hook Form"], [/^zod$/, "Zod"],
+  [/vitest/, "Vitest"], [/playwright/, "Playwright (E2E)"], [/^turbo$|turborepo/, "Turborepo (monorepo)"],
+  [/^prisma$|@prisma/, "Prisma"], [/drizzle-orm/, "Drizzle"],
+];
+
+const readJSON = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
+
+// Resolve a working dir to its repo root: the nearest ancestor holding a .git
+// entry (the repo boundary). A session run in a subdir (e.g. apps/web) thus
+// scans the whole repo, not just its corner. Falls back to the dir itself.
+function findRepoRoot(cwd) {
+  let dir = cwd;
+  for (let i = 0; i < 64 && dir; i++) {
+    if (existsSync(join(dir, ".git"))) return dir;
+    const parent = dir.slice(0, dir.lastIndexOf("/"));
+    if (!parent || parent === dir) break;
+    dir = parent;
+  }
+  return cwd;
+}
+
+function listDirs(parent) {
+  if (!existsSync(parent)) return [];
+  try { return readdirSync(parent, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => join(parent, e.name)); }
+  catch { return []; }
+}
+
+// Workspace package dirs: honor the root package.json "workspaces" globs when
+// present (npm/yarn array, or { packages: [...] }); fall back to the common
+// apps/* + packages/* layout otherwise.
+function workspaceDirs(root, rootPkg) {
+  const globs = Array.isArray(rootPkg?.workspaces) ? rootPkg.workspaces
+    : Array.isArray(rootPkg?.workspaces?.packages) ? rootPkg.workspaces.packages : null;
+  if (!globs) return [...listDirs(join(root, "apps")), ...listDirs(join(root, "packages"))];
+  const dirs = [];
+  for (const g of globs) {
+    if (g.endsWith("/*")) dirs.push(...listDirs(join(root, g.slice(0, -2))));
+    else dirs.push(join(root, g));
+  }
+  return dirs;
+}
+
+// Dependency names across the repo root and its workspaces. npm manifests only.
+function workspaceDepNames(root) {
+  const names = new Set();
+  const rootPkgPath = join(root, "package.json");
+  const rootPkg = readJSON(rootPkgPath);
+  const pkgPaths = rootPkg ? [rootPkgPath] : [];
+  for (const d of workspaceDirs(root, rootPkg)) {
+    const pj = join(d, "package.json");
+    if (existsSync(pj)) pkgPaths.push(pj);
+  }
+  for (const pj of pkgPaths) {
+    const j = readJSON(pj);
+    if (j) for (const k of Object.keys({ ...(j.dependencies || {}), ...(j.devDependencies || {}) })) names.add(k.toLowerCase());
+  }
+  return names;
+}
+
+// Merge the two evidence streams into one deduped stack list. Exported so it can
+// be unit-tested against an on-disk fixture directly (buildDigest applies the
+// ephemeral-path filter, which would drop a fixture created under /tmp).
+export function detectStack({ cwdRaw, exts, cmdsText }) {
+  const labels = new Set();
+  if (cwdRaw && existsSync(cwdRaw)) {
+    for (const name of workspaceDepNames(findRepoRoot(cwdRaw))) {
+      for (const [re, l] of DEP_LABELS) if (re.test(name)) labels.add(l);
+    }
+  }
+  for (const ext of Object.keys(exts || {})) if (EXT_LABELS[ext]) labels.add(EXT_LABELS[ext]);
+  for (const [re, l] of CMD_LABELS) if (re.test(cmdsText || "")) labels.add(l);
+  return [...labels];
+}
+
+// Every label the detector can emit. Exported so the groundedness verifier
+// derives its tech lexicon from the SAME source as detection (tokenising these
+// the same way it tokenises the stack), instead of a separate hardcoded list
+// that silently drifts as the maps grow.
+export function labelVocabulary() {
+  return [...new Set([...Object.values(EXT_LABELS), ...CMD_LABELS.map(([, l]) => l), ...DEP_LABELS.map(([, l]) => l)])];
+}
+
+// First cwd in a cluster that still exists on disk (else the first seen).
+function resolveCwd(cwds, fallback) {
+  for (const c of cwds) if (c && existsSync(c)) return c;
+  return cwds[0] || fallback || "";
+}
+
+// Extension of a (POSIX-normalised) file path, lowercased; null when none.
+function fileExt(path) {
+  const base = path.slice(path.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const ext = base.slice(dot + 1).toLowerCase();
+  return /^[a-z0-9]{1,5}$/.test(ext) ? ext : null;
+}
 
 function classify(p) {
   const tags = [];
@@ -92,12 +220,13 @@ export function buildDigest(parsed) {
     const key = repoKey(s.cwdRedacted || cwd);
     if (!byRepo.has(key)) {
       byRepo.set(key, {
-        repo: key, cwdRaw: s.cwdRaw || "", sessions: 0, userMessages: 0, prompts: [],
-        toolHist: {}, areas: {}, cmds: [], webQueries: [],
+        repo: key, cwdRaw: s.cwdRaw || "", cwds: [], sessions: 0, userMessages: 0, prompts: [],
+        toolHist: {}, areas: {}, exts: {}, cmds: [], webQueries: [],
         delegation: 0, planning: 0, firstTs: null, lastTs: null,
       });
     }
     const p = byRepo.get(key);
+    if (s.cwdRaw && !p.cwds.includes(s.cwdRaw)) p.cwds.push(s.cwdRaw);
     p.sessions++;
     for (const m of s.messages) {
       const t = ms(m.ts);
@@ -115,6 +244,7 @@ export function buildDigest(parsed) {
         if (PLANNING.has(u.name)) p.planning++;
         const area = u.path ? toArea(u.path, key) : null;
         if (area) p.areas[area] = (p.areas[area] || 0) + 1;
+        if (u.path) { const e = fileExt(u.path); if (e) p.exts[e] = (p.exts[e] || 0) + 1; }
         if (u.cmd) p.cmds.push(u.cmd);
         if (u.q) p.webQueries.push(u.q);
       }
@@ -131,6 +261,9 @@ export function buildDigest(parsed) {
       const commits = (cmdsText.match(/git commit/g) || []).length;
       const reverts = (cmdsText.match(/git revert|git reset --hard|git checkout -- /g) || []).length;
       const designQueries = p.webQueries.filter((q) => DESIGN_RE.test(q)).length;
+      // First cluster cwd that still exists — a deleted first worktree must not
+      // disable dependency detection for the whole cluster.
+      const cwdRaw = resolveCwd(p.cwds, p.cwdRaw);
       const ctx = {
         mutations, designQueries,
         researchToMutation: mutations ? +(research / mutations).toFixed(2) : null,
@@ -140,7 +273,7 @@ export function buildDigest(parsed) {
       };
       return {
         repo: p.repo,
-        cwdRaw: p.cwdRaw, // local-only
+        cwdRaw, // local-only; first existing cwd in the cluster
         type: classify(ctx),
         // Null when no message carried a timestamp — never the epoch. A
         // fabricated "1970-01" is a claimed date the logs can't back.
@@ -151,7 +284,7 @@ export function buildDigest(parsed) {
         // Code-volume signal for representative selection (edits/writes landed).
         mutations,
         topAreas: Object.fromEntries(topAreas),
-        tech: detectTech([...topAreas.map(([a]) => a), cmdsText]),
+        tech: detectStack({ cwdRaw, exts: p.exts, cmdsText }),
         landing: {
           checksRun: /eslint|tsc|typecheck|playwright|npm (run )?build|pnpm build|npm test|pnpm test/i.test(cmdsText),
           commits, reverts,

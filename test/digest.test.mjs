@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildDigest } from "../src/digest.mjs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { buildDigest, detectStack } from "../src/digest.mjs";
 
 function session(sid, cwdRaw, ts, msgs) {
   return {
@@ -109,6 +112,77 @@ test("classifies an audit-research project (lots of reads, few mutations)", () =
   };
   const d = buildDigest(parsed);
   assert.ok(d.projects[0].type.includes("audit-research"));
+});
+
+// Unit-test detectStack directly against an on-disk fixture. buildDigest would
+// drop a fixture created under the OS tmpdir (/var/folders, /tmp) via the
+// ephemeral-path filter — so the on-disk assertions live here, and buildDigest-
+// level behaviour is exercised on synthetic /Users/... paths below.
+test("detectStack: deps across workspace globs + touched evidence, never .env", () => {
+  const root = mkdtempSync(join(tmpdir(), "apply-new-stack-"));
+  try {
+    writeFileSync(join(root, "package.json"), JSON.stringify({
+      workspaces: ["packages/*"],
+      dependencies: { next: "*", firebase: "*", "@prisma/client": "*" },
+    }));
+    mkdirSync(join(root, "packages", "core"), { recursive: true });
+    writeFileSync(join(root, "packages", "core", "package.json"), JSON.stringify({ dependencies: { openai: "*" } }));
+    // STRAPI_API_TOKEN would match the /strapi/ dep rule IF env keys were ever
+    // fed to detection. They must not be — this is the load-bearing privacy line.
+    writeFileSync(join(root, ".env"), "STRAPI_API_TOKEN=secret\n");
+
+    const tech = detectStack({ cwdRaw: root, exts: { py: 1 }, cmdsText: "uvicorn api.main:app" });
+    assert.ok(tech.includes("Next.js/React"), tech.join(","));
+    assert.ok(tech.includes("Firebase/Firestore"), tech.join(","));
+    assert.ok(tech.includes("OpenAI"), tech.join(",")); // workspace dep via "workspaces" glob
+    assert.ok(tech.includes("Prisma"), tech.join(",")); // @prisma/client -> real dep
+    assert.ok(tech.includes("Python"), tech.join(","));  // touched .py
+    assert.ok(tech.includes("FastAPI"), tech.join(",")); // uvicorn command
+    assert.ok(!tech.some((t) => /strapi/i.test(t)), `.env leaked Strapi: ${tech.join(",")}`);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("detectStack: a subdirectory session still sees the repo-root manifest", () => {
+  const root = mkdtempSync(join(tmpdir(), "apply-new-subdir-"));
+  try {
+    mkdirSync(join(root, ".git"), { recursive: true }); // repo boundary for the walk-up
+    writeFileSync(join(root, "package.json"), JSON.stringify({ dependencies: { "@supabase/supabase-js": "*" } }));
+    mkdirSync(join(root, "apps", "web"), { recursive: true });
+    writeFileSync(join(root, "apps", "web", "package.json"), JSON.stringify({ dependencies: { vite: "*" } }));
+    // Session ran INSIDE apps/web — must still discover the root supabase dep.
+    const tech = detectStack({ cwdRaw: join(root, "apps", "web"), exts: {}, cmdsText: "" });
+    assert.ok(tech.includes("Supabase"), `root dep missed from subdir: ${tech.join(",")}`);
+    assert.ok(tech.includes("Vite"), tech.join(",")); // and the workspace's own dep
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("detectStack: a tool name inside a path/argument is not a command false positive", () => {
+  assert.ok(!detectStack({ cwdRaw: "", exts: {}, cmdsText: "cat docs/fastapi-notes.md" }).includes("FastAPI"));
+  assert.ok(detectStack({ cwdRaw: "", exts: {}, cmdsText: "uvicorn api.main:app" }).includes("FastAPI"));
+});
+
+test("stack detection: a path that merely mentions a library is not a false positive", () => {
+  // No package.json on disk, a path containing "prisma", no prisma command.
+  const cwd = "/Users/matteo/Github/no-deps-repo";
+  const parsed = {
+    source: "claude-code",
+    sessions: [session("s1", cwd, ["2026-04-01T10:00:00Z"], [
+      user("x", "2026-04-01T10:00:00Z"),
+      assistant("2026-04-01T10:01:00Z", [tool("Edit", { path: `${cwd}/src/lib/prisma/client.ts` })]),
+    ])],
+  };
+  const tech = buildDigest(parsed).projects[0].tech;
+  assert.ok(!tech.includes("Prisma"), `path "prisma" became a false positive: ${tech.join(",")}`);
+});
+
+test("the digest never reads .env (absence-of-read, proven from source)", () => {
+  const src = readFileSync(new URL("../src/digest.mjs", import.meta.url), "utf8");
+  const code = src.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, ""); // strip comments
+  assert.ok(!/\.env\b/.test(code), "src/digest.mjs must not reference .env in code");
 });
 
 // --- undated projects (defect-to-test) ---------------------------------------
