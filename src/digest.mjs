@@ -17,8 +17,11 @@ const PLANNING = new Set(["TodoWrite", "ExitPlanMode"]);
 const MUTATION = new Set(["Edit", "Write", "NotebookEdit", "MultiEdit"]);
 const RESEARCH = new Set(["Read", "Grep", "Glob", "WebSearch", "WebFetch"]);
 
-// Ephemeral sandboxes (background tasks) are not real projects.
-const isEphemeral = (cwd) => /\/(private|tmp|var\/folders)\//.test(cwd);
+// Ephemeral sandboxes (background tasks) are not real projects. Anchored to
+// the scratch ROOTS (/tmp, /var/folders, with the macOS /private alias) —
+// matching anywhere in the path silently dropped real projects under
+// directories merely named tmp/ or private/ (e.g. ~/tmp/scratchpad-app).
+const isEphemeral = (cwd) => /^\/(?:private\/)?(?:tmp|var\/folders)\//.test(cwd);
 
 // Cluster sessions by product: the repo segment of the working dir.
 function repoKey(cwd) {
@@ -272,8 +275,10 @@ export function buildDigest(parsed) {
         repo: p.repo,
         cwdRaw, // local-only; first existing cwd in the cluster
         type: classify(ctx),
-        from: month(new Date(p.firstTs).toISOString()),
-        to: month(new Date(p.lastTs).toISOString()),
+        // Null when no message carried a timestamp — never the epoch. A
+        // fabricated "1970-01" is a claimed date the logs can't back.
+        from: p.firstTs ? month(new Date(p.firstTs).toISOString()) : null,
+        to: p.lastTs ? month(new Date(p.lastTs).toISOString()) : null,
         sessions: p.sessions,
         userMessages: p.userMessages,
         // Code-volume signal for representative selection (edits/writes landed).

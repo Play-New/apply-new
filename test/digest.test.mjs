@@ -35,6 +35,23 @@ test("ephemeral sandbox paths are excluded from the digest", () => {
   assert.equal(d.projects[0].repo, "real-repo");
 });
 
+test("ephemeral filter is anchored to scratch roots: user dirs named tmp/private are kept", () => {
+  const mk = (sid, cwd) => session(sid, cwd, ["2026-01-01T10:00:00Z"], [user("x", "2026-01-01T10:00:00Z")]);
+  const parsed = {
+    source: "claude-code",
+    sessions: [
+      mk("a", "/Users/matteo/tmp/scratchpad-app"),      // kept: tmp/ inside HOME is a real dir
+      mk("b", "/Users/matteo/private-notes/journal"),   // kept: merely contains "private"
+      mk("c", "/tmp/throwaway"),                        // dropped: scratch root
+      mk("d", "/private/tmp/claude-501/task"),          // dropped: macOS alias of /tmp
+      mk("e", "/var/folders/ab/cd/T/work"),             // dropped: macOS per-user scratch
+      mk("f", "/private/var/folders/zz/yy/T/job"),      // dropped: aliased form
+    ],
+  };
+  const d = buildDigest(parsed);
+  assert.deepEqual(d.projects.map((p) => p.repo).sort(), ["journal", "scratchpad-app"]);
+});
+
 test("classifies a sustained product build with many commits", () => {
   const cwd = "/Users/matteo/Github/big-product";
   const msgs = [];
@@ -166,4 +183,43 @@ test("the digest never reads .env (absence-of-read, proven from source)", () => 
   const src = readFileSync(new URL("../src/digest.mjs", import.meta.url), "utf8");
   const code = src.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, ""); // strip comments
   assert.ok(!/\.env\b/.test(code), "src/digest.mjs must not reference .env in code");
+});
+
+// --- undated projects (defect-to-test) ---------------------------------------
+// A project whose messages carry no timestamps got `new Date(null)` → epoch →
+// "1970-01" as its span — a fabricated date in a tool whose rule is that every
+// claimed number must be verifiable. Undated spans are null now, and the
+// render shows "n/a" instead of an invented month.
+import { assembleProfile, renderMarkdown } from "../src/profile.mjs";
+
+test("a project with no parseable timestamps gets a null span, never the epoch", () => {
+  const parsed = {
+    source: "claude-code",
+    sessions: [{
+      sessionId: "u", cwdRaw: "/Users/x/Projects/undated-app",
+      cwdRedacted: "/Users/⟨user⟩/Projects/undated-app",
+      firstTs: undefined, lastTs: undefined,
+      chain: [{ uuid: "u-0", parentUuid: null, ts: undefined }],
+      messages: [{ role: "user", ts: undefined, textRedacted: "hello", toolUses: [], toolResults: [], usage: null }],
+    }],
+  };
+  const d = buildDigest(parsed);
+  assert.equal(d.projects[0].from, null);
+  assert.equal(d.projects[0].to, null);
+  assert.ok(!JSON.stringify(d.projects[0]).includes("1970-01"));
+});
+
+test("null spans render as n/a, not null→null", () => {
+  const p = assembleProfile({
+    contact: { name: "X", email: "x@y.z", city: "C", status: "freelance" },
+    projects: [
+      { repo: "undated", selected: true, type: ["feature-work"], from: null, to: null, sessions: 2, userMessages: 4, tech: [], landing: {}, researchToMutation: null, delegation: 0, topAreas: {} },
+      { repo: "inv", selected: false, type: ["feature-work"], from: null, to: null, sessions: 1, userMessages: 1, tech: [], landing: {}, researchToMutation: null, delegation: 0, topAreas: {} },
+    ],
+    narrative: null, fingerprint: { totals: {} }, forensics: { score: 100 }, manifestHash: "h",
+  });
+  const md = renderMarkdown(p);
+  assert.match(md, /n\/a→n\/a/);
+  assert.ok(!md.includes("null→null"));
+  assert.ok(!md.includes("1970-01"));
 });

@@ -12,15 +12,23 @@ import { basename } from "node:path";
 // canonical host. Override via PLAYNEW_INTAKE_URL or --endpoint for staging/local.
 const DEFAULT_ENDPOINT = "https://intelligence.playnew.com/api/apply";
 
-export async function submitProfile(profilePath, { endpoint } = {}) {
-  if (!existsSync(profilePath)) throw new Error(`profile not found: ${profilePath}`);
-  const profile = JSON.parse(readFileSync(profilePath, "utf8"));
+// The exact JSON that leaves the machine, as one pure step — shared by the
+// real POST and `submit --dry-run`, so what the candidate inspects IS what is
+// sent. Does not mutate its input.
+export function buildPayload(profile) {
   if (profile.schema !== "playnew-profile/v1") throw new Error(`expected schema playnew-profile/v1, got ${profile.schema}`);
   if (!profile.contact?.email) throw new Error("missing contact.email: regenerate the profile with all fields");
+  const payload = structuredClone(profile);
   // Strip repoLabel from every project before sending. The label is the
   // candidate's own directory name and is meant ONLY to help them recognise
   // their projects locally during curation — it must not reach Play New.
-  stripRepoLabels(profile);
+  stripRepoLabels(payload);
+  return payload;
+}
+
+export async function submitProfile(profilePath, { endpoint } = {}) {
+  if (!existsSync(profilePath)) throw new Error(`profile not found: ${profilePath}`);
+  const profile = buildPayload(JSON.parse(readFileSync(profilePath, "utf8")));
 
   const url = endpoint || process.env.PLAYNEW_INTAKE_URL || DEFAULT_ENDPOINT;
   const form = new FormData();

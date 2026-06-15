@@ -8,7 +8,7 @@ Apply New makes it visible. You run it on your laptop, you see the profile befor
 
 ## You'll need
 
-Claude Code installed and a Claude subscription (Pro, Max, or Enterprise). No API key.
+Node 20 or newer, Claude Code installed, and a Claude subscription (Pro, Max, or Enterprise). No API key.
 
 ## How it goes
 
@@ -45,7 +45,9 @@ Six lenses, all built from your logs.
 
 Plus a trajectory block (how your behavior shifted across the observed window), three to five representative projects (adaptive: flagships by significance, extra slots only for type diversity or comparable significance), and a groundedness check (the prose has to track back to the data; below 60%, submission is blocked).
 
-At submit time everything is re-checked, not trusted: groundedness is recomputed on the file as it is now, the structured numbers are re-derived from your logs (the profile can't claim more sessions or commits than the logs contain), and the intake recomputes groundedness and the structural invariants server-side on what it receives. An incoherent hand-edit of `candidate.json` doesn't survive the trip; the log-level re-derivation runs only on your machine, since your logs never leave it. Like the authenticity score, this is a screen, not proof.
+At submit time everything is re-checked, not trusted: groundedness is recomputed on the file as it is now, the structured numbers are re-derived from your logs (the profile can't claim more sessions or commits than the logs contain), and the intake recomputes groundedness and the structural invariants server-side on what it receives. An incoherent hand-edit of `candidate.json` doesn't survive the trip; the log-level re-derivation runs only on your machine, since your logs never leave it.
+
+The profile also discloses its own coverage: a `sources` block records which log sources were read, at what capture level (*full* = tamper-evident records the authenticity screen can verify; *structural* = well-formed data without a verification story), and how many sessions each contributed. The window and every count are **lower bounds** of your real activity — logs rotate and old sessions are pruned, so what the tool can still see is never more than what you did. Like the authenticity score, this is a screen, not proof.
 
 ## What it isn't
 
@@ -80,9 +82,10 @@ If you spot something we should change, [open an issue](https://github.com/Play-
 | `generate` *(default)* | full profile, locally |
 | `prepare` | only `out/narrative-input.json`, for writing the narrative manually |
 | `finalize --narrative-file out/narrative.json` | finalize after `prepare` |
+| `submit --dry-run` | write the exact outgoing payload to `out/payload-preview.json`, send nothing |
 | `submit --yes` | send to Play New |
 
-All commands run as `node bin/apply-new.mjs <sub>` or as `apply-new <sub>` after `npm link`. Common flags: `--name`, `--email`, `--city`, `--status`, `--top N` (force the project count; default is adaptive 3–5), `--root <dir>`. Without Claude Code, set `ANTHROPIC_API_KEY` and the narrative goes through the API instead of your subscription — note that on this path the narrative input (project labels, README/CLAUDE.md excerpts, dependency names, commit subjects, sampled prompts) is sent to api.anthropic.com under your own key, before any name-stripping; the tool warns when this happens, and an explicit `--narrative-file` always takes precedence over the key. The subscription and manual paths stay fully local until submit. Details in [PRIVACY.md](PRIVACY.md).
+All commands run as `node bin/apply-new.mjs <sub>` or as `apply-new <sub>` after `npm link`. Common flags: `--name`, `--email`, `--city`, `--status`, `--top N` (force the project count; default is adaptive 3–5), `--root <dir>`, `--tz <IANA zone>` (bucket the day-based counts — active days, streak — in your timezone instead of the UTC default; the zone you choose is recorded in the profile, which is also why UTC is the default: a zone names a place, and nothing location-shaped should leave your machine unless you opt in). Without Claude Code, set `ANTHROPIC_API_KEY` and the narrative goes through the API instead of your subscription — note that on this path the narrative input (project labels, README/CLAUDE.md excerpts, dependency names, commit subjects, sampled prompts) is sent to api.anthropic.com under your own key, before any name-stripping; the tool warns when this happens, and an explicit `--narrative-file` always takes precedence over the key. The subscription and manual paths stay fully local until submit. Details in [PRIVACY.md](PRIVACY.md).
 
 ## Tests
 

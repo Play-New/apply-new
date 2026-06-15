@@ -76,6 +76,19 @@ export function enrichRepo(cwdRaw) {
   return out;
 }
 
+// One honest line about what the enrichment could NOT see. The empty catches
+// above encode expected absence (a Python repo has no package.json, a non-git
+// dir has no log), so this is computed from the OUTPUT shape instead: an entry
+// that found a root but produced no stack, no doc, and no commits contributed
+// nothing to the narrative. Local-only data — one aggregate note, no per-error
+// noise.
+export function describeContextGaps(enrichments) {
+  const list = enrichments ?? [];
+  const gaps = list.filter((e) => !e?.found || (!e.pkgName && !e.doc && !e.commits?.length)).length;
+  if (!gaps) return null;
+  return `repo context unavailable for ${gaps} of ${list.length} selected project${list.length === 1 ? "" : "s"} (the narrative leans on prompts and logs for those)`;
+}
+
 function collectAddedDoctrineLines(root) {
   const candidates = [];
   for (const file of ["CLAUDE.md", "README.md"]) {

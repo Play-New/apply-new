@@ -143,9 +143,45 @@ function cognitiveTags(projects, fingerprint) {
   return tags;
 }
 
+// --- sources ------------------------------------------------------------------
+
+// Capture level per source. "full" = tamper-evident records the forensic
+// screen can actually verify (request ids, signatures, usage shapes);
+// "structural" = well-formed session data with no verification story.
+// Unknown sources default to structural — honesty about what we can't verify.
+const CAPTURE_LEVEL = { "claude-code": "full" };
+
+// Per-source coverage summary for the profile: which sources were read, at
+// what capture level, how many sessions each contributed, over which months.
+// Counts here are CAPTURE counts (everything read, ephemeral included), so
+// they are an upper bound on what enters the profile — and the profile's own
+// window/counts stay lower bounds of the candidate's real activity, because
+// logs rotate and old sessions are pruned.
+export function summarizeSources(parsed) {
+  if (!parsed?.sessions?.length) return null;
+  const by = new Map();
+  for (const s of parsed.sessions) {
+    const key = s.source || "claude-code";
+    const e = by.get(key) || { source: key, sessions: 0, from: null, to: null };
+    e.sessions++;
+    const from = typeof s.firstTs === "string" ? s.firstTs.slice(0, 7) : null;
+    const to = typeof s.lastTs === "string" ? s.lastTs.slice(0, 7) : from;
+    if (from && (!e.from || from < e.from)) e.from = from;
+    if (to && (!e.to || to > e.to)) e.to = to;
+    by.set(key, e);
+  }
+  return [...by.values()].map((e) => ({
+    source: e.source,
+    captureLevel: CAPTURE_LEVEL[e.source] ?? "structural",
+    sessions: e.sessions,
+    window: e.from ? { from: e.from, to: e.to } : null,
+    backend: null, // adapters with multiple read paths (e.g. sqlite vs JSON cache) fill this in
+  }));
+}
+
 // --- assemble ----------------------------------------------------------------
 
-export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory, groundedness, aiRelationship, agenticLiteracy, intensity, distribution }) {
+export function assembleProfile({ contact, projects, narrative, fingerprint, forensics, manifestHash, trajectory, groundedness, aiRelationship, agenticLiteracy, intensity, distribution, sources }) {
   const froms = projects.map((p) => p.from).filter(Boolean).sort();
   const tos = projects.map((p) => p.to).filter(Boolean).sort();
   const selected = projects.filter((p) => p.selected);
@@ -163,6 +199,10 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
       sessions: projects.reduce((n, p) => n + p.sessions, 0),
       instructions: projects.reduce((n, p) => n + p.userMessages, 0),
     },
+    // Coverage disclosure (optional; absent on profiles from older versions).
+    // What was read, at what capture level — the profile's own honesty about
+    // its inputs. Spread keeps the old shape byte-identical when absent.
+    ...(sources?.length ? { sources } : {}),
     summary: narrative?.summary || null,
     // Aggregate fields of work, derived by the LLM from per-product evidence.
     // Counts, not names: each entry is { label, products, sessions, note? }.
@@ -216,17 +256,25 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
           // Deterministic facts (Lot 1).
           shifts: trajectory.shifts?.available ? trajectory.shifts : null,
           topics: trajectory.topics || [],
-          // The LLM filters domain/technical words out of the raw recurring
-          // list; if the model didn't run, fall back to the raw candidates.
-          newVocabulary:
-            narrative?.trajectory?.vocabulary_adopted ?? trajectory.vocabularyCandidates ?? [],
+          // ONLY the narrative's filtered pick. The raw vocabularyCandidates
+          // are unfiltered late-half words and can carry client or product
+          // names — they must never reach candidate.json.
+          newVocabulary: narrative?.trajectory?.vocabulary_adopted ?? [],
           // LLM-derived (Lot 2). Optional — may be null if no narrative ran.
           narrative: narrative?.trajectory?.narrative || null,
           principlesAdopted: narrative?.trajectory?.principles_adopted || [],
         }
       : null,
     stackAdopted: [...new Set(projects.flatMap((p) => p.tech))],
-    authenticity: { score: forensics?.score ?? null, manifestHash: manifestHash || null, note: "screen, not proof" },
+    authenticity: {
+      score: forensics?.score ?? null,
+      manifestHash: manifestHash || null,
+      // The forensic checks inspect tamper-evident fields only full-capture
+      // sources carry; say so the moment a structural source is in the mix.
+      note: sources?.some((s) => s.captureLevel !== "full")
+        ? "screen, not proof; verifies full-capture sources only"
+        : "screen, not proof",
+    },
     groundedness: groundedness
       ? { score: groundedness.score, supported: groundedness.supported, total: groundedness.total }
       : null,
@@ -248,6 +296,13 @@ export function renderMarkdown(p) {
     `Window: ${p.window.from} → ${p.window.to} · ${p.volume.sessions} sessions · ${p.volume.instructions} instructions · ${p.volume.products} products`,
   );
   L.push(`Log consistency screen: ${p.authenticity.score}/100 (${p.authenticity.note})`);
+  if (p.sources?.length) {
+    const src = p.sources
+      .map((s) => `${s.source} (${s.captureLevel} capture${s.backend ? `, ${s.backend}` : ""}) · ${s.sessions} sessions read`)
+      .join(" · ");
+    L.push(`Sources: ${src}`);
+    L.push(`Window and counts are lower bounds: logs rotate and old sessions are pruned.`);
+  }
   if (p.summary) L.push(`\n${p.summary}`);
 
   if (p.domains?.length) {
@@ -262,7 +317,7 @@ export function renderMarkdown(p) {
   for (const pr of p.projects) {
     const headTail = pr.repoLabel ? ` _(${pr.id} — ${pr.repoLabel})_` : ` _(${pr.id})_`;
     L.push(`\n### ${pr.domain || "(domain)"}  ·  ${pr.type.join(" · ")}${headTail}`);
-    L.push(`${pr.span.from}→${pr.span.to} · ${pr.sessions} sessions · ${land(pr.landing)}`);
+    L.push(`${pr.span.from ?? "n/a"}→${pr.span.to ?? "n/a"} · ${pr.sessions} sessions · ${land(pr.landing)}`);
     if (pr.tech.length) L.push(`stack: ${pr.tech.join(", ")}`);
     if (pr.did) L.push(pr.did);
     if (pr.whyRepresentative) L.push(`_why representative:_ ${pr.whyRepresentative}`);
@@ -273,7 +328,7 @@ export function renderMarkdown(p) {
     L.push(`\n## Other projects (inventory)`);
     for (const o of p.otherProjects) {
       const tag = o.repoLabel ? ` _(${o.repoLabel})_` : "";
-      L.push(`- ${o.type.join(" · ")} · ${o.span.from}→${o.span.to} · ${o.sessions} sess${tag}`);
+      L.push(`- ${o.type.join(" · ")} · ${o.span.from ?? "n/a"}→${o.span.to ?? "n/a"} · ${o.sessions} sess${tag}`);
     }
   }
 
@@ -290,7 +345,8 @@ export function renderMarkdown(p) {
   if (p.intensity) {
     const i = p.intensity;
     L.push(`\n## Practice intensity`);
-    L.push(`- Active days: ${i.activeDays} / ${i.observedDays} (${Math.round(i.activeDaysRatio * 100)}%)`);
+    const tzNote = i.timezone && i.timezone !== "UTC" ? ` (days counted in ${i.timezone})` : "";
+    L.push(`- Active days: ${i.activeDays} / ${i.observedDays} (${Math.round(i.activeDaysRatio * 100)}%)${tzNote}`);
     L.push(`- Median sessions per active day: ${i.medianSessionsPerActiveDay}`);
     L.push(`- Median session depth: ${i.medianSessionToolCalls} tool calls`);
     L.push(`- Longest streak: ${i.longestStreak} consecutive days`);

@@ -11,23 +11,31 @@
 // A daily-driver candidate ends up around: ≥60% active days, ≥1 session/day
 // median, ≥30 tool calls median session, ≥10 day streak. An occasional user
 // looks the opposite on all five.
+//
+// activeDays uses the SHARED definition in src/days.mjs (message-activity days,
+// no interpolation) so it can never diverge from the fingerprint. The timezone
+// the days are bucketed in is recorded on the result so the count reproduces.
+
+import { activeDayKeys, dayKeyFor, DEFAULT_TZ } from "./days.mjs";
 
 const DAY_MS = 86_400_000;
-const dayKey = (ts) => new Date(ts).toISOString().slice(0, 10);
 const median = (arr) => {
   if (!arr.length) return 0;
   const s = [...arr].sort((a, b) => a - b);
   return s[Math.floor(s.length / 2)];
 };
 
-export function computeIntensity(parsed) {
+export function computeIntensity(parsed, { tz = DEFAULT_TZ } = {}) {
   const sessions = parsed?.sessions ?? [];
   if (sessions.length === 0) return null;
 
+  const dayKey = dayKeyFor(tz);
+
   // Per-session aggregates
   const perSession = [];
-  const perDaySessions = new Map(); // day → count of sessions opened that day
-  const perDayToolCalls = new Map();
+  const perDaySessions = new Map(); // active day → # sessions active that day
+  const perDayToolCalls = new Map(); // session-open day → tool calls
+  const allMsgTs = []; // every message timestamp — the active-day source, shared with the fingerprint
   let firstTs = Infinity;
   let lastTs = -Infinity;
 
@@ -36,20 +44,41 @@ export function computeIntensity(parsed) {
     const end = s.lastTs ? Date.parse(s.lastTs) : start;
     if (!Number.isFinite(start)) continue;
     let toolCalls = 0;
-    for (const m of s.messages ?? []) toolCalls += (m.toolUses?.length ?? 0);
+    // A session is "active" on every day it actually had a message — this
+    // recovers days spent only continuing an existing session, while leaving
+    // genuinely idle days idle (no interpolation across a resume gap).
+    const dayHits = new Set();
+    for (const m of s.messages ?? []) {
+      toolCalls += (m.toolUses?.length ?? 0);
+      const mt = m.ts ? Date.parse(m.ts) : NaN;
+      if (Number.isFinite(mt)) { allMsgTs.push(mt); dayHits.add(dayKey(mt)); }
+    }
     perSession.push({ start, end, toolCalls });
-    const d = dayKey(start);
-    perDaySessions.set(d, (perDaySessions.get(d) ?? 0) + 1);
-    perDayToolCalls.set(d, (perDayToolCalls.get(d) ?? 0) + toolCalls);
+    // NO session-open fallback. firstTs can come from a non-message record
+    // (system row, file-history snapshot), but the fingerprint counts message
+    // timestamps only — so a timestamped, message-empty session must contribute
+    // zero active days here too, or the two diverge.
+    for (const d of dayHits) perDaySessions.set(d, (perDaySessions.get(d) ?? 0) + 1);
+    // Tool-call volume is attributed to the day the session opened (peak-day proxy).
+    const openDay = dayKey(start);
+    perDayToolCalls.set(openDay, (perDayToolCalls.get(openDay) ?? 0) + toolCalls);
     if (start < firstTs) firstTs = start;
     if (end > lastTs) lastTs = end;
   }
   if (!perSession.length) return null;
 
-  // Observed window in days, inclusive.
-  const observedDays = Math.max(1, Math.round((lastTs - firstTs) / DAY_MS) + 1);
-  const activeDays = perDaySessions.size;
-  const activeDaysRatio = +(activeDays / observedDays).toFixed(2);
+  // activeDays via the SHARED definition: the exact call the fingerprint makes,
+  // over message timestamps. The two cannot diverge.
+  const activeDayKeySet = activeDayKeys(allMsgTs, tz);
+  const activeDaysCount = activeDayKeySet.size;
+
+  // observedDays from inclusive day KEYS in the same recorded zone — not a raw-ms
+  // window, which can round below the day-bucket count (a 90-min session across
+  // midnight is 2 active days in 1 rounded ms-day -> 200%). This makes
+  // activeDays <= observedDays hold by construction in every zone.
+  const dayCount = (a, b) => Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / DAY_MS) + 1;
+  const observedDays = Math.max(1, dayCount(dayKey(firstTs), dayKey(lastTs)));
+  const activeDaysRatio = +(activeDaysCount / observedDays).toFixed(2);
 
   // Median sessions per active day (NOT per observed day — we want the cadence
   // on the days they actually showed up).
@@ -61,7 +90,7 @@ export function computeIntensity(parsed) {
   const medianSessionToolCalls = median(toolCallsPerSession);
 
   // Longest consecutive-active-days streak.
-  const dayStamps = [...perDaySessions.keys()].sort();
+  const dayStamps = [...activeDayKeySet].sort();
   let longestStreak = 0;
   let currentStreak = 0;
   let prev = null;
@@ -90,7 +119,7 @@ export function computeIntensity(parsed) {
 
   return {
     observedDays,
-    activeDays,
+    activeDays: activeDaysCount,
     activeDaysRatio,
     medianSessionsPerActiveDay,
     medianSessionToolCalls,
@@ -98,5 +127,6 @@ export function computeIntensity(parsed) {
     peakDayToolCalls,
     cadence,
     sessionShape,
+    timezone: tz, // recorded so activeDays/streak reproduce on any machine
   };
 }

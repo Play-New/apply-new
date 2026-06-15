@@ -18,6 +18,8 @@
 //   --name "Giulia" --email g@x.io --city Milano --status freelance
 //   --top 4                        # force the number of representative projects
 //                                  # (default: adaptive, 3 to 5)
+//   --tz Europe/Rome               # timezone for day-based counts (activeDays,
+//                                  # streak). Default UTC; recorded in the profile.
 //   --narrative-file narrative.json
 //   --endpoint https://...         # override PLAYNEW_INTAKE_URL for submit
 //
@@ -35,18 +37,32 @@ import { readClaudeCode } from "../src/adapters/claude-code.mjs";
 import { computeFingerprint } from "../src/fingerprint.mjs";
 import { computeForensics } from "../src/forensics.mjs";
 import { buildDigest } from "../src/digest.mjs";
-import { enrichRepo } from "../src/enrich.mjs";
+import { enrichRepo, describeContextGaps } from "../src/enrich.mjs";
 import { generateNarrative } from "../src/profile-llm.mjs";
-import { selectRepresentatives, assembleProfile, renderMarkdown } from "../src/profile.mjs";
+import { selectRepresentatives, assembleProfile, renderMarkdown, summarizeSources } from "../src/profile.mjs";
 import { buildContact } from "../src/contact.mjs";
-import { submitProfile } from "../src/submit.mjs";
+import { submitProfile, buildPayload } from "../src/submit.mjs";
 import { buildTrajectory } from "../src/trajectory.mjs";
 import { assessGroundedness } from "../src/groundedness.mjs";
-import { assessStructure, assessAgainstLogs } from "../src/consistency.mjs";
+import { assessStructure, assessAgainstLogs, submitBlockers } from "../src/consistency.mjs";
 import { computeAiRelationship } from "../src/ai-relationship.mjs";
 import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
 import { computeIntensity } from "../src/intensity.mjs";
 import { computeDistribution } from "../src/distribution.mjs";
+import { DEFAULT_TZ } from "../src/days.mjs";
+
+// Friendly Node floor (package.json `engines` is advisory only when invoked
+// as `node bin/apply-new.mjs`). Imports hoist and evaluate before this line
+// runs, so the check only protects us while src/ stays free of import-time
+// Node-20-only syntax and builtins — true today: fetch / FormData /
+// structuredClone all live inside function bodies, and everything parses as
+// ES2022. Without this, old Node dies later with a bare ReferenceError.
+const nodeMajor = Number(process.versions.node.split(".")[0]);
+if (nodeMajor < 20) {
+  console.error(`apply-new needs Node 20 or newer; you're running ${process.version}.`);
+  console.error(`Install a current Node from https://nodejs.org (or: nvm install 20).`);
+  process.exit(1);
+}
 
 const SUB_COMMANDS = new Set(["generate", "prepare", "finalize", "submit"]);
 
@@ -62,6 +78,16 @@ const flag = (n, d = null) => {
 };
 const has = (n) => argv.includes(`--${n}`);
 const tryGit = (k) => { try { return execSync(`git config ${k}`, { encoding: "utf8" }).trim() || null; } catch { return null; } };
+
+// Validate --tz up front, before reading any logs — an unknown zone should fail
+// fast, not throw mid-pipeline from inside Intl.DateTimeFormat.
+const tzFlag = flag("tz", DEFAULT_TZ);
+try {
+  new Intl.DateTimeFormat("en-CA", { timeZone: tzFlag }).format(0);
+} catch {
+  console.error(`Invalid --tz "${tzFlag}". Expected an IANA timezone, e.g. UTC or Europe/Rome.`);
+  process.exit(2);
+}
 
 // Every generated file (narrative-input.json, narrative.json, candidate.json,
 // profile.md) lands in ./out — never in the repo root.
@@ -81,8 +107,13 @@ async function loadProfileInputs(out) {
   const parsed = readClaudeCode(root);
   console.log(`      ${parsed.sessions.length} sessions, ${parsed.files.length} files`);
 
+  // Timezone the day-based counts (activeDays, streak) are bucketed in. Default
+  // UTC (machine-independent); recorded in the profile so the count reproduces.
+  // Validated at startup (tzFlag) before any logs are read.
+  const tz = tzFlag;
+
   console.log(`[2/5] Fingerprint, manifest, consistency ...`);
-  const fingerprint = computeFingerprint(parsed);
+  const fingerprint = computeFingerprint(parsed, { tz });
   const forensics = computeForensics(parsed);
 
   console.log(`[3/5] Deep digest + per-repo clustering (PII redacted: ${parsed.redaction.hits}) ...`);
@@ -92,12 +123,15 @@ async function loadProfileInputs(out) {
   console.log(`      ${digest.projectCount} products, ${selected.length}${flag("top") ? "" : " (adaptive 3-5)"} representative: ${selected.map((p) => `${p.repo}[${p.type[0]}]`).join(", ")}`);
 
   const enrichments = selected.map((p) => enrichRepo(p.cwdRaw));
+  const contextGap = describeContextGaps(enrichments);
+  if (contextGap) console.error(`      note: ${contextGap}`);
   const trajectory = buildTrajectory(parsed);
   const aiRelationship = computeAiRelationship(parsed);
   const agenticLiteracy = computeAgenticLiteracy(parsed);
-  const intensity = computeIntensity(parsed);
+  const intensity = computeIntensity(parsed, { tz });
   const distribution = computeDistribution(projects);
-  return { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, out };
+  const sources = summarizeSources(parsed);
+  return { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, sources, out };
 }
 
 function resolveContact() {
@@ -122,7 +156,7 @@ function writeProfile(out, profile) {
 async function cmdGenerate() {
   const out = outDir();
   console.log(`\napply-new generate\n`);
-  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution } = await loadProfileInputs(out);
+  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, sources } = await loadProfileInputs(out);
   const { contact, errors } = resolveContact();
   if (errors.length) {
     console.error("\nMissing contact fields:");
@@ -152,7 +186,7 @@ async function cmdGenerate() {
 
   console.log(`[5/5] Assembling and saving ...\n`);
   writeProfile(out, assembleWithGroundedness({
-    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship, agenticLiteracy, intensity, distribution,
+    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, sources,
     manifestHash: fingerprint.manifest.bundleHash,
   }));
 }
@@ -160,6 +194,12 @@ async function cmdGenerate() {
 // Assemble + compute groundedness on the assembled draft + re-assemble with
 // the score embedded. Centralised so generate and finalize share it.
 function assembleWithGroundedness(args) {
+  // The raw vocabularyCandidates never enter the profile (they can carry
+  // client names) — so a narrative that omitted its filtered pick leaves
+  // newVocabulary empty. Say so instead of failing silently.
+  if (args.narrative && args.trajectory?.vocabularyCandidates?.length && !args.narrative.trajectory?.vocabulary_adopted?.length) {
+    console.error(`      note: the narrative has no trajectory.vocabulary_adopted — newVocabulary stays empty (raw candidates are never used; re-run the narrative step to fill it)`);
+  }
   const draft = assembleProfile(args);
   const groundedness = assessGroundedness(draft);
   return assembleProfile({ ...args, groundedness });
@@ -192,7 +232,7 @@ async function cmdFinalize() {
     console.error(`Missing ${narrativeFile}. Run apply-new prepare first, then write ${OUT_DIR}/narrative.json.`);
     process.exit(2);
   }
-  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution } = await loadProfileInputs(out);
+  const { parsed, fingerprint, forensics, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, sources } = await loadProfileInputs(out);
   const { contact, errors } = resolveContact();
   if (errors.length) {
     console.error("\nMissing contact fields:");
@@ -210,7 +250,7 @@ async function cmdFinalize() {
     compactionSummaries: parsed.compactionSummaries,
   });
   writeProfile(out, assembleWithGroundedness({
-    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship, agenticLiteracy, intensity, distribution,
+    contact, projects, narrative, fingerprint, forensics, trajectory, aiRelationship, agenticLiteracy, intensity, distribution, sources,
     manifestHash: fingerprint.manifest.bundleHash,
   }));
 }
@@ -238,6 +278,8 @@ async function cmdSubmit() {
   console.log(`  profile: ${profile.volume?.sessions} sessions, ${profile.volume?.products} products`);
   console.log(`  artifacts: ${(profile.projects || []).filter((p) => p.artifact).length}`);
   console.log(`\nNOT submitted: raw logs, local repo context, third-party proper names.`);
+  console.log(`Repository names (repoLabel) are stripped from the payload before it leaves your machine.`);
+  console.log(`Inspect the exact outgoing payload:  apply-new submit --dry-run`);
 
   // Pre-flight groundedness: how much of the prose is anchored in the data.
   // Recomputed on the file as it is NOW, not trusted from the embedded score.
@@ -262,12 +304,18 @@ async function cmdSubmit() {
   // the logs (the ground truth the profile claims to describe).
   console.log(`\nConsistency check`);
   const issues = [...assessStructure(profile).issues];
+  let excessClaims = 0;
   let root = flag("root", join(homedir(), ".claude", "projects"));
   if (flag("project")) root = join(root, flag("project"));
   if (existsSync(root)) {
-    const digest = buildDigest(readClaudeCode(root));
-    const logs = assessAgainstLogs(profile, digest.projects);
+    const parsed = readClaudeCode(root);
+    const digest = buildDigest(parsed);
+    // Re-derive day-based intensity in the zone the profile RECORDED — never
+    // the machine zone — so the comparison measures the data, not the bucketing.
+    const intensity = computeIntensity(parsed, { tz: profile.intensity?.timezone || DEFAULT_TZ });
+    const logs = assessAgainstLogs(profile, digest.projects, { intensity });
     issues.push(...logs.issues);
+    excessClaims = logs.excessClaims || 0;
     for (const w of logs.warnings) console.log(`  ~ ${w}`);
   } else {
     console.log(`  ~ no logs at ${root}, skipping log re-derivation (pass --root if they live elsewhere)`);
@@ -275,24 +323,68 @@ async function cmdSubmit() {
   if (issues.length) {
     console.log(`  The structured data does not match ${existsSync(root) ? "your logs / its own invariants" : "its own invariants"}:`);
     for (const i of issues) console.log(`    - ${i}`);
-    console.log(`  If your logs were pruned since generation, regenerate (apply-new generate).`);
+    if (excessClaims > 0) {
+      // Claims exceed what the logs can prove now. Since normal use only ever
+      // GROWS the logs, the usual cause is Claude Code's cleanup pruning the
+      // oldest sessions between generation and submit — not anything the
+      // candidate did wrong.
+      console.log(`  Your profile claims more than your logs can prove right now. The usual cause:`);
+      console.log(`  Claude Code prunes sessions older than its cleanup period (~30 days by default),`);
+      console.log(`  and the oldest part of your window aged out after the profile was generated.`);
+      console.log(`  Nothing is wrong with what you did — the numbers are just stale.`);
+      console.log(`  Fix: regenerate now and submit right away (apply-new generate, or re-run /apply-new).`);
+    } else {
+      console.log(`  If your logs were pruned since generation, regenerate (apply-new generate).`);
+    }
   } else {
     console.log(`  structured data is internally consistent and matches your logs`);
+  }
+
+  const blockers = submitBlockers({ issues, groundedness: g, force: has("force") });
+  const printBlockers = () => {
+    for (const b of blockers) {
+      if (b.kind === "consistency") {
+        console.error(`\nConsistency check failed (${b.count} issue${b.count > 1 ? "s" : ""}). Submission blocked.`);
+        console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
+        console.error(`Note: the intake re-checks groundedness and these invariants server-side.`);
+      } else if (b.kind === "groundedness-unscored") {
+        console.error(`\nGroundedness could not be scored: the prose has too few checkable anchors for the screen to run. Submission blocked.`);
+        console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
+        console.error(`Note: the intake flags unscoreable prose server-side as well.`);
+      } else if (b.kind === "groundedness-low") {
+        console.error(`\nGroundedness is low (${b.score}%). Submission blocked.`);
+        console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
+      }
+    }
+  };
+
+  // --dry-run: write the EXACT outgoing JSON (repository names stripped) and
+  // stop before any network call — so a candidate under NDA can read the very
+  // bytes that would leave the machine. The file is written even when submit
+  // would be blocked: inspection is the point; the exit code says which.
+  if (has("dry-run")) {
+    const previewPath = join(process.cwd(), OUT_DIR, "payload-preview.json");
+    writeFileSync(previewPath, JSON.stringify(buildPayload(profile), null, 2) + "\n");
+    console.log(`\nWrote ${OUT_DIR}/payload-preview.json — the exact JSON \`submit --yes\` would POST (repository names stripped). Nothing was sent.`);
+    const fileArtifacts = (profile.projects ?? []).filter((p) => p.artifact?.type === "file" && p.artifact.path);
+    if (fileArtifacts.length) {
+      console.log(`Artifact files that would upload as separate parts:`);
+      for (const p of fileArtifacts) console.log(`  - ${p.id}: ${p.artifact.path}`);
+    }
+    if (blockers.length) {
+      console.error(`\nsubmit would be blocked:`);
+      printBlockers();
+      process.exit(2);
+    }
+    return;
   }
 
   if (!has("yes")) {
     console.log(`\nTo confirm:  apply-new submit --yes`);
     return;
   }
-  if (issues.length && !has("force")) {
-    console.error(`\nConsistency check failed (${issues.length} issue${issues.length > 1 ? "s" : ""}). Submission blocked.`);
-    console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
-    console.error(`Note: the intake re-checks groundedness and these invariants server-side.`);
-    process.exit(2);
-  }
-  if (g.score != null && g.score < 60 && !has("force")) {
-    console.error(`\nGroundedness is low (${g.score}%). Submission blocked.`);
-    console.error(`Regenerate the profile (apply-new generate) or pass --force to bypass.`);
+  if (blockers.length) {
+    printBlockers();
     process.exit(2);
   }
 

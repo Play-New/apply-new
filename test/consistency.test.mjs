@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assessStructure, assessAgainstLogs } from "../src/consistency.mjs";
+import { assessStructure, assessAgainstLogs, submitBlockers } from "../src/consistency.mjs";
 
 const honestProfile = () => ({
   schema: "playnew-profile/v1",
@@ -84,4 +84,104 @@ test("logs: growth since generation is fine (logs only grow until pruning)", () 
   grown[0] = { ...grown[0], sessions: 13, userMessages: 55, landing: { commits: 20 } };
   const { issues } = assessAgainstLogs(honestProfile(), grown);
   assert.deepEqual(issues, []);
+});
+
+// The pruning signature: claims exceeding the logs. Normal use only grows the
+// logs, so excessClaims > 0 means either post-generation pruning (the common,
+// innocent case submit now explains) or hand-inflation — never ongoing use.
+test("logs: excessClaims counts claims-exceed-logs issues (pruning signature)", () => {
+  const p = honestProfile();
+  p.volume.sessions = 99; // logs were pruned (or the file inflated) after generation
+  p.projects[0].sessions = 19;
+  const { issues, excessClaims } = assessAgainstLogs(p, digestProjects());
+  assert.equal(excessClaims, 2);
+  assert.equal(issues.length, 2);
+});
+
+test("logs: excessClaims is 0 on an honest profile, and when logs merely grew", () => {
+  assert.equal(assessAgainstLogs(honestProfile(), digestProjects()).excessClaims, 0);
+  const grown = digestProjects();
+  grown[0].sessions += 50; // logs grew since generation: one-directional gate stays green
+  const { issues, excessClaims } = assessAgainstLogs(honestProfile(), grown);
+  assert.equal(excessClaims, 0);
+  assert.deepEqual(issues, []);
+});
+
+test("logs: a project missing from the logs is an issue but not an excess claim", () => {
+  const p = honestProfile();
+  p.projects[0].repoLabel = "never-existed";
+  const { issues, excessClaims } = assessAgainstLogs(p, digestProjects());
+  assert.ok(issues.some((i) => i.includes("no such project")));
+  assert.equal(excessClaims, 0);
+});
+
+// --- day-based intensity claims (issue #10, lands on #8's recorded timezone) -
+
+test("structure: activeDays exceeding observedDays is an invariant violation", () => {
+  const p = honestProfile();
+  p.intensity = { observedDays: 30, activeDays: 31, longestStreak: 5, timezone: "UTC" };
+  const { issues } = assessStructure(p);
+  assert.ok(issues.some((i) => i.includes("intensity.activeDays")), issues.join("; "));
+  p.intensity.activeDays = 30; // every observed day active: legal
+  assert.deepEqual(assessStructure(p).issues, []);
+});
+
+test("structure: a profile without an intensity block stays valid", () => {
+  assert.deepEqual(assessStructure(honestProfile()).issues, []);
+});
+
+test("logs: intensity claims exceeding the re-derivation join excessClaims", () => {
+  const p = honestProfile();
+  p.intensity = { observedDays: 30, activeDays: 24, longestStreak: 9, timezone: "UTC" };
+  // Pruning aged out old sessions: whole days fell out of the re-derivation.
+  const derived = { activeDays: 20, longestStreak: 6, timezone: "UTC" };
+  const { issues, excessClaims } = assessAgainstLogs(p, digestProjects(), { intensity: derived });
+  assert.equal(excessClaims, 2);
+  assert.ok(issues.some((i) => i.includes("24 active days")), issues.join("; "));
+  assert.ok(issues.some((i) => i.includes("9-day streak")), issues.join("; "));
+});
+
+test("logs: intensity growth since generation stays green (one-directional gate)", () => {
+  const p = honestProfile();
+  p.intensity = { observedDays: 30, activeDays: 24, longestStreak: 9, timezone: "UTC" };
+  const derived = { activeDays: 26, longestStreak: 11, timezone: "UTC" }; // kept working since
+  const { issues, excessClaims } = assessAgainstLogs(p, digestProjects(), { intensity: derived });
+  assert.equal(excessClaims, 0);
+  assert.deepEqual(issues, []);
+});
+
+test("logs: no re-derived intensity given means no intensity checks (old call shape)", () => {
+  const p = honestProfile();
+  p.intensity = { observedDays: 30, activeDays: 24, longestStreak: 9, timezone: "UTC" };
+  const { issues, excessClaims } = assessAgainstLogs(p, digestProjects());
+  assert.equal(excessClaims, 0);
+  assert.deepEqual(issues, []);
+});
+
+// --- the submit gate (defect-to-test) ----------------------------------------
+// The gate read `g.score != null && g.score < 60` — a profile whose prose had
+// fewer than 4 checkable anchors scored null and sailed through the exact gate
+// built to stop ungrounded prose, while the intake flags precisely that case.
+// submitBlockers is the single pure gate every submit path consults.
+test("gate: unscored groundedness (null score) blocks like low groundedness", () => {
+  const b = submitBlockers({ groundedness: { score: null, supported: 0, total: 2 } });
+  assert.ok(b.some((x) => x.kind === "groundedness-unscored"), JSON.stringify(b));
+});
+
+test("gate: 59 blocks, 60 passes", () => {
+  assert.ok(submitBlockers({ groundedness: { score: 59 } }).some((x) => x.kind === "groundedness-low"));
+  assert.deepEqual(submitBlockers({ groundedness: { score: 60 } }), []);
+});
+
+test("gate: consistency issues block with a count", () => {
+  const b = submitBlockers({ issues: ["a", "b"], groundedness: { score: 100 } });
+  assert.deepEqual(b, [{ kind: "consistency", count: 2 }]);
+});
+
+test("gate: --force clears every blocker", () => {
+  assert.deepEqual(submitBlockers({ issues: ["a"], groundedness: { score: null }, force: true }), []);
+});
+
+test("gate: a clean, scored profile passes", () => {
+  assert.deepEqual(submitBlockers({ issues: [], groundedness: { score: 92 } }), []);
 });

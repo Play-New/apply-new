@@ -120,6 +120,8 @@ function collectSupportPool(profile) {
   addNumber(profile?.volume?.products);
   addNumber(profile?.volume?.instructions);
   addNumber(profile?.authenticity?.score);
+  // Per-source capture counts are citable ("941 sessions read from …")
+  for (const s of profile?.sources ?? []) addNumber(s.sessions);
   addText(profile?.window?.from);
   addText(profile?.window?.to);
 
@@ -150,6 +152,19 @@ function collectSupportPool(profile) {
   for (const d of profile?.domains ?? []) {
     addNumber(d.products);
     addNumber(d.sessions);
+  }
+
+  // Practice-intensity numbers (the narrative may quote any of them, raw or as %)
+  const it = profile?.intensity;
+  if (it) {
+    addNumber(it.observedDays);
+    addNumber(it.activeDays);
+    addNumber(it.longestStreak);
+    addNumber(it.medianSessionsPerActiveDay);
+    addNumber(it.medianSessionToolCalls);
+    addNumber(it.peakDayToolCalls);
+    addNumber(it.activeDaysRatio);
+    if (it.activeDaysRatio != null) addNumber(Math.round(it.activeDaysRatio * 100));
   }
 
   // Work distribution numbers (the narrative may quote any of them, raw or as %)
@@ -202,6 +217,7 @@ function classifyTextFields(profile) {
   if (profile?.cognitive?.narrative) fields.push({ where: "cognitive.narrative", text: profile.cognitive.narrative });
   if (profile?.trajectory?.narrative) fields.push({ where: "trajectory.narrative", text: profile.trajectory.narrative });
   if (profile?.distribution?.narrative) fields.push({ where: "distribution.narrative", text: profile.distribution.narrative });
+  if (profile?.intensity?.narrative) fields.push({ where: "intensity.narrative", text: profile.intensity.narrative });
   for (const [i, d] of (profile?.domains ?? []).entries()) {
     if (d?.note) fields.push({ where: `domains[${i}].note`, text: d.note });
   }
