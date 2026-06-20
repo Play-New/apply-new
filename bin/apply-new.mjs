@@ -34,6 +34,7 @@ import { join } from "node:path";
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { readClaudeCode } from "../src/adapters/claude-code.mjs";
+import { readAllSources } from "../src/sources.mjs";
 import { computeFingerprint } from "../src/fingerprint.mjs";
 import { computeForensics } from "../src/forensics.mjs";
 import { buildDigest } from "../src/digest.mjs";
@@ -104,8 +105,18 @@ async function loadProfileInputs(out) {
   if (!existsSync(root)) { console.error(`No logs at ${root}.`); process.exit(1); }
 
   console.log(`[1/5] Reading ${root} ...`);
-  const parsed = readClaudeCode(root);
-  console.log(`      ${parsed.sessions.length} sessions, ${parsed.files.length} files`);
+  // Sources: claude-code is always read; opencode is folded in unless
+  // --no-opencode says otherwise. --opencode-json forces the JSON backend
+  // over the default sqlite (more complete but slower on huge logs).
+  const parsed = readAllSources({
+    claudeRoot: root,
+    ocRoot: flag("opencode-root"),
+    noOpencode: has("no-opencode"),
+    opencodeJson: has("opencode-json"),
+  });
+  console.log(`      claude-code: ${parsed.sessions.filter(s => s.source === "claude-code").length} sessions`);
+  const oc = parsed.sessions.filter(s => s.source === "opencode");
+  if (oc.length) console.log(`      opencode:    ${oc.length} sessions`);
 
   // Timezone the day-based counts (activeDays, streak) are bucketed in. Default
   // UTC (machine-independent); recorded in the profile so the count reproduces.
@@ -308,7 +319,15 @@ async function cmdSubmit() {
   let root = flag("root", join(homedir(), ".claude", "projects"));
   if (flag("project")) root = join(root, flag("project"));
   if (existsSync(root)) {
-    const parsed = readClaudeCode(root);
+    // Re-derive from the SAME source mix the profile was generated from,
+    // otherwise a merged profile (claude-code + opencode) trips the tamper
+    // signal because volume.sessions > re-derived sessions.
+    const parsed = readAllSources({
+      claudeRoot: root,
+      ocRoot: flag("opencode-root"),
+      noOpencode: has("no-opencode"),
+      opencodeJson: has("opencode-json"),
+    });
     const digest = buildDigest(parsed);
     // Re-derive day-based intensity in the zone the profile RECORDED — never
     // the machine zone — so the comparison measures the data, not the bucketing.

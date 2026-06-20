@@ -19,6 +19,9 @@ const shortHash = (s) => sha256(s).slice(0, 8);
 // use "\", so without this every path regex silently misses. cwdRaw is left
 // untouched — it stays the real OS path used for local filesystem access.
 const toPosix = (s) => (typeof s === "string" ? s.replace(/\\/g, "/") : s);
+// Re-exported so other adapters (e.g. opencode) can reuse the same
+// path canonicalisation instead of re-implementing it.
+export { toPosix };
 
 function* walk(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
