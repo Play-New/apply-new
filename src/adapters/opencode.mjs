@@ -204,6 +204,12 @@ function ingestMessage(session, m, parts, acc) {
 // the orchestration. Re-point each child to its root ancestor's working dir so
 // the subagent work is attributed to the product that launched it. The
 // delegation COUNT is already carried by the parent's mapped `Task` calls.
+//
+// Re-point ALL THREE project-identity fields together, not just cwdRedacted:
+// digest clusters by cwdRedacted (repoKey) but fingerprint counts distinct
+// projectLabel (= shortHash(cwdRaw)). If only cwdRedacted moves, the child
+// folds into the parent product for the digest yet stays a separate project
+// for the fingerprint — the two then disagree on the product count.
 function applyRollup(sessions, byId) {
   const ancestor = (s, seen = new Set()) => {
     if (!s.parentId || seen.has(s.sessionId)) return s;
@@ -217,13 +223,15 @@ function applyRollup(sessions, byId) {
     const anc = ancestor(s);
     if (anc !== s && anc.cwdRedacted && anc.cwdRedacted !== s.cwdRedacted) {
       s.cwdRedacted = anc.cwdRedacted;
+      s.cwdRaw = anc.cwdRaw;
+      s.projectLabel = anc.projectLabel;
       rolledUp++;
     }
   }
   return rolledUp;
 }
 
-function finalize(root, sessions, files, acc, rolledUp) {
+function finalize(root, sessions, files, acc, rolledUp, backend) {
   return {
     source: "opencode",
     root,
@@ -231,14 +239,18 @@ function finalize(root, sessions, files, acc, rolledUp) {
     sessions: sessions.map((s) => ({ ...s, models: [...s.models] })),
     compactionSummaries: acc.compactionSummaries,
     redaction: { hits: acc.redactionHits, charsRemoved: acc.redactedChars },
-    stats: { rolledUpSubagentSessions: rolledUp },
+    // backend records WHICH read path produced this bundle ("sqlite" = the full
+    // opencode.db, "json" = the partial JSON cache). It is the silent-fallback
+    // disclosure hook: the JSON cache can hold far fewer sessions than the db,
+    // so the user should see which one was read. summarizeSources surfaces it.
+    stats: { rolledUpSubagentSessions: rolledUp, backend },
   };
 }
 
 const EMPTY = (root) => ({
   source: "opencode", root: root || null, files: [], sessions: [],
   compactionSummaries: [], redaction: { hits: 0, charsRemoved: 0 },
-  stats: { rolledUpSubagentSessions: 0 },
+  stats: { rolledUpSubagentSessions: 0, backend: null },
 });
 
 // ── Backend: sqlite (preferred) ─────────────────────────────────────────────
@@ -288,7 +300,7 @@ export function readOpencodeDb(dbPath = defaultOpencodeDb()) {
     }
 
     const rolledUp = applyRollup(sessions, byId);
-    return finalize(dbPath, sessions, files, acc, rolledUp);
+    return finalize(dbPath, sessions, files, acc, rolledUp, "sqlite");
   } finally {
     db.close();
   }
@@ -346,7 +358,7 @@ export function readOpencodeJson(root = defaultOpencodeRoot()) {
   }
 
   const rolledUp = applyRollup(sessions, byId);
-  return finalize(root, sessions, files, acc, rolledUp);
+  return finalize(root, sessions, files, acc, rolledUp, "json");
 }
 
 // ── Public entry: prefer the db, fall back to JSON ──────────────────────────
@@ -367,8 +379,17 @@ export function readOpencode(root = defaultOpencodeRoot()) {
 // per-repo clustering downstream then unifies sessions of the same product
 // across tools automatically. summarizeSources(parsed) on main reads the
 // per-session source tag and groups them for the profile's sources block.
+//
+// We also carry a per-source `backends` map ({ source: "sqlite"|"json" }) out
+// of the merge — the one piece of per-source stats the capture-level seam needs
+// that can't be recovered from a session tag (which read path served a source).
+// summarizeSources reads it to fill each source's `backend` field.
 export function mergeSources(...parsedList) {
   const sources = parsedList.filter(Boolean);
+  const backends = {};
+  for (const p of sources) {
+    if (p.source && p.stats?.backend) backends[p.source] = p.stats.backend;
+  }
   return {
     source: sources.map((p) => p.source).join("+") || "none",
     root: sources[0]?.root ?? null,
@@ -379,5 +400,6 @@ export function mergeSources(...parsedList) {
       hits: sources.reduce((n, p) => n + (p.redaction?.hits ?? 0), 0),
       charsRemoved: sources.reduce((n, p) => n + (p.redaction?.charsRemoved ?? 0), 0),
     },
+    backends,
   };
 }

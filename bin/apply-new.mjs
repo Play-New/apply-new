@@ -116,7 +116,13 @@ async function loadProfileInputs(out) {
   });
   console.log(`      claude-code: ${parsed.sessions.filter(s => s.source === "claude-code").length} sessions`);
   const oc = parsed.sessions.filter(s => s.source === "opencode");
-  if (oc.length) console.log(`      opencode:    ${oc.length} sessions`);
+  if (oc.length) {
+    // Surface WHICH backend read opencode: the sqlite db is far more complete
+    // than the JSON cache, so a silent fallback to JSON is a coverage drop the
+    // user should see, not discover later.
+    const backend = parsed.backends?.opencode;
+    console.log(`      opencode${backend ? ` (${backend})` : ""}:    ${oc.length} sessions`);
+  }
 
   // Timezone the day-based counts (activeDays, streak) are bucketed in. Default
   // UTC (machine-independent); recorded in the profile so the count reproduces.

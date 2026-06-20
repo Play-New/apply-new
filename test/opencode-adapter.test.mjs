@@ -14,6 +14,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { readOpencode, mergeSources } from "../src/adapters/opencode.mjs";
+import { summarizeSources } from "../src/profile.mjs";
 import { buildDigest } from "../src/digest.mjs";
 import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
 import { computeIntensity } from "../src/intensity.mjs";
@@ -126,13 +127,33 @@ test("privacy: tool output dropped, reasoning text not stored, secrets redacted"
   });
 });
 
-test("subagent child-sessions roll up to the parent product", () => {
+test("subagent child-sessions roll up to the parent product (all identity fields)", () => {
   withStorage((root) => {
     const parsed = readOpencode(root);
     assert.equal(parsed.stats.rolledUpSubagentSessions, 1);
     const child = parsed.sessions.find((s) => s.sessionId === "ses_child");
     const parent = parsed.sessions.find((s) => s.sessionId === "ses_parent");
-    assert.equal(child.cwdRedacted, parent.cwdRedacted, "child should inherit parent cwd");
+    // All three identity fields must move together, else fingerprint (counts
+    // projectLabel) and digest (clusters cwdRedacted) disagree on the count.
+    assert.equal(child.cwdRedacted, parent.cwdRedacted, "child should inherit parent cwdRedacted");
+    assert.equal(child.cwdRaw, parent.cwdRaw, "child should inherit parent cwdRaw");
+    assert.equal(child.projectLabel, parent.projectLabel, "child should inherit parent projectLabel");
+  });
+});
+
+test("backend is disclosed: readOpencode tags which read path served the bundle", () => {
+  withStorage((root) => {
+    // No sqlite db beside this synthetic storage tree → JSON backend.
+    const parsed = readOpencode(root);
+    assert.equal(parsed.stats.backend, "json");
+    // mergeSources carries it out as a per-source map for summarizeSources.
+    const merged = mergeSources(readOpencode(root));
+    assert.equal(merged.backends.opencode, "json");
+    // …and it lands in the profile's per-source coverage block.
+    const block = summarizeSources(merged);
+    const oc = block.find((s) => s.source === "opencode");
+    assert.equal(oc.backend, "json");
+    assert.equal(oc.captureLevel, "structural");
   });
 });
 
