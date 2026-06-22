@@ -218,20 +218,27 @@ function applyRollup(sessions, byId) {
     return parent ? ancestor(parent, seen) : s;
   };
   let rolledUp = 0;
+  let orphaned = 0;
   for (const s of sessions) {
     if (!s.parentId) continue;
     const anc = ancestor(s);
-    if (anc !== s && anc.cwdRedacted && anc.cwdRedacted !== s.cwdRedacted) {
+    // Parent absent from the read set (a pruned/partial JSON cache can hold a
+    // subagent child without its root): ancestor() returns the child itself, so
+    // it can't roll up and stands as its own spurious "product", inflating the
+    // count. We can't attribute it without the parent, so disclose it in stats
+    // rather than let the over-count be silent.
+    if (anc === s) { orphaned++; continue; }
+    if (anc.cwdRedacted && anc.cwdRedacted !== s.cwdRedacted) {
       s.cwdRedacted = anc.cwdRedacted;
       s.cwdRaw = anc.cwdRaw;
       s.projectLabel = anc.projectLabel;
       rolledUp++;
     }
   }
-  return rolledUp;
+  return { rolledUp, orphaned };
 }
 
-function finalize(root, sessions, files, acc, rolledUp, backend) {
+function finalize(root, sessions, files, acc, rolledUp, backend, orphaned = 0) {
   return {
     source: "opencode",
     root,
@@ -243,14 +250,14 @@ function finalize(root, sessions, files, acc, rolledUp, backend) {
     // opencode.db, "json" = the partial JSON cache). It is the silent-fallback
     // disclosure hook: the JSON cache can hold far fewer sessions than the db,
     // so the user should see which one was read. summarizeSources surfaces it.
-    stats: { rolledUpSubagentSessions: rolledUp, backend },
+    stats: { rolledUpSubagentSessions: rolledUp, orphanedSubagentSessions: orphaned, backend },
   };
 }
 
 const EMPTY = (root) => ({
   source: "opencode", root: root || null, files: [], sessions: [],
   compactionSummaries: [], redaction: { hits: 0, charsRemoved: 0 },
-  stats: { rolledUpSubagentSessions: 0, backend: null },
+  stats: { rolledUpSubagentSessions: 0, orphanedSubagentSessions: 0, backend: null },
 });
 
 // ── Backend: sqlite (preferred) ─────────────────────────────────────────────
@@ -264,7 +271,15 @@ export function readOpencodeDb(dbPath = defaultOpencodeDb()) {
 
   const db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
   try {
-    const sessStmt = db.prepare("SELECT id, parent_id, directory, version FROM session");
+    // ORDER BY id: without it SQLite returns rows in physical/rowid order, which
+    // is not stable across machines (or after VACUUM / row deletion). Session
+    // emission order feeds the digest's Map-insertion order, which is the
+    // tie-break for representative selection on equal-significance products — so
+    // an unordered read can reorder/reselect representatives machine-to-machine.
+    // The session table has no time_created column (unlike message/part), so id
+    // is the deterministic key. (bundleHash sorts file hashes, so the tamper hash
+    // was already safe; this fixes the candidate.json ordering/selection.)
+    const sessStmt = db.prepare("SELECT id, parent_id, directory, version FROM session ORDER BY id");
     const mStmt = db.prepare("SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created");
     const pStmt = db.prepare("SELECT data FROM part WHERE message_id = ? ORDER BY time_created");
 
@@ -299,8 +314,8 @@ export function readOpencodeDb(dbPath = defaultOpencodeDb()) {
       sessions.push(session);
     }
 
-    const rolledUp = applyRollup(sessions, byId);
-    return finalize(dbPath, sessions, files, acc, rolledUp, "sqlite");
+    const { rolledUp, orphaned } = applyRollup(sessions, byId);
+    return finalize(dbPath, sessions, files, acc, rolledUp, "sqlite", orphaned);
   } finally {
     db.close();
   }
@@ -339,6 +354,19 @@ export function readOpencodeJson(root = defaultOpencodeRoot()) {
     let records = 0;
     let malformed = 0;
 
+    // Collect messages first, then ingest in CREATION-TIME order. The sqlite
+    // backend reads messages `ORDER BY time_created`; opencode message ids sort
+    // reverse-chronologically (descending-id scheme), so a bare filename sort
+    // feeds messages newest-first and the two backends reconstruct each session
+    // in OPPOSITE order — diverging compactionSummaries (sliced -6 into the
+    // narrative), concatenated text, and the per-file provenance bytes, all from
+    // nothing but the Node version (sqlite present >= 22.5 vs JSON fallback).
+    // Sort by m.time.created so the JSON path agrees with the db. Provenance is
+    // still hashed over `chunks` in filename order, so the per-file sha is
+    // unchanged. Parts carry no timestamp in the JSON layout, so their
+    // within-message order stays filename-sorted (only multi-text-part
+    // concatenation is order-sensitive there).
+    const msgs = [];
     for (const mf of listJson(join(messageDir, info.id)).sort()) {
       let m;
       try { chunks.push(readFileSync(mf)); m = JSON.parse(readFileSync(mf, "utf8")); records++; }
@@ -348,8 +376,10 @@ export function readOpencodeJson(root = defaultOpencodeRoot()) {
         try { chunks.push(readFileSync(pf)); parts.push(JSON.parse(readFileSync(pf, "utf8"))); records++; }
         catch { malformed++; }
       }
-      ingestMessage(session, m, parts, acc);
+      msgs.push({ m, parts });
     }
+    msgs.sort((a, b) => (a.m.time?.created ?? 0) - (b.m.time?.created ?? 0));
+    for (const { m, parts } of msgs) ingestMessage(session, m, parts, acc);
 
     const buf = Buffer.concat(chunks);
     files.push({ relPath: `opencode/session/${info.id}`, sha256: sha256(buf), bytes: buf.length, lines: records, malformed });
@@ -357,8 +387,8 @@ export function readOpencodeJson(root = defaultOpencodeRoot()) {
     sessions.push(session);
   }
 
-  const rolledUp = applyRollup(sessions, byId);
-  return finalize(root, sessions, files, acc, rolledUp, "json");
+  const { rolledUp, orphaned } = applyRollup(sessions, byId);
+  return finalize(root, sessions, files, acc, rolledUp, "json", orphaned);
 }
 
 // ── Public entry: prefer the db, fall back to JSON ──────────────────────────
