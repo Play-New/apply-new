@@ -135,6 +135,12 @@ function collectSupportPool(profile) {
     // Orchestration counts a narrative may cite ("N dispatches across M CLIs").
     addNumber(p?.metrics?.orchestration?.dispatchCommands);
     addNumber(p?.metrics?.orchestration?.toolCount);
+    // The narrative is fed the per-CLI session split (orchestration.tools, e.g.
+    // {"claude-code": 38, opencode: 12}); pool those counts too, so once a
+    // second source lands a narrative citing "38 via Claude, 12 via opencode" is
+    // grounded, not flagged. (Single-source: tools is {claude-code: p.sessions},
+    // already pooled via p.sessions above — so this is inert until a 2nd source.)
+    for (const v of Object.values(p?.metrics?.orchestration?.tools ?? {})) addNumber(v);
     addText(p?.span?.from);
     addText(p?.span?.to);
     for (const t of p.tech ?? []) for (const w of splitTech(t)) tech.add(w);

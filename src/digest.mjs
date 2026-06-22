@@ -220,13 +220,21 @@ const DESIGN_RE = /design|ui\b|typograph|layout|figma|css|color|grid|font|spacin
 // trailing `(?=\s|$)`, so `cd my-codex-tests` (codex inside a path) does not
 // count while `cd x && opencode run ...` does. `\b` was wrong here precisely
 // because `-` is a word boundary, so the old pattern fired inside hyphenated
-// tokens. Bare `claude` (an interactive REPL) is intentionally NOT a dispatch —
-// only `claude -p` / `--print` (headless) is.
-const AGENT_LAUNCHER_RE = /^(?:claude\s+(?:-p|--print)|(?:opencode|crush|goose)\s+run|codex(?:\s+exec)?|aider|cursor-agent)(?=\s|$)/i;
+// tokens.
+//
+// Interactive / housekeeping invocations are intentionally NOT dispatches —
+// only the HEADLESS mode of each launcher is: `claude -p`/`--print` (not bare
+// `claude`, the REPL), and `codex exec` (not bare `codex`, the TUI, nor
+// `codex login`/`mcp`/`resume`). Requiring the headless subcommand keeps the
+// two consistent; without it `codex login` would read as farmed-out work.
+const AGENT_LAUNCHER_RE = /^(?:claude\s+(?:-p|--print)|(?:opencode|crush|goose)\s+run|codex\s+exec|aider|cursor-agent)(?=\s|$)/i;
 
 // Count agent-launcher invocations in a product's shell history. Splits each
-// command on shell separators and strips leading env assignments so the matcher
-// sees the executable position of every sub-command.
+// command on TOP-LEVEL shell separators (&&, ||, ;, |, newline) and strips
+// leading env assignments so the matcher sees the executable position of each
+// top-level sub-command. Launchers behind a wrapper (npx/sudo/time) or nested in
+// $()/subshells/control-flow bodies are NOT counted — dispatchCommands is a
+// lower bound, consistent with the toolCount note below.
 function countDispatch(cmds) {
   let n = 0;
   for (const cmd of cmds) {
