@@ -271,7 +271,11 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
       manifestHash: manifestHash || null,
       // The forensic checks inspect tamper-evident fields only full-capture
       // sources carry; say so the moment a structural source is in the mix.
-      note: sources?.some((s) => s.captureLevel !== "full")
+      // A null score means there was no full-capture source to screen at all —
+      // disclose that rather than rendering a vacuous number.
+      note: forensics?.score == null
+        ? "n/a — no full-capture source to screen"
+        : sources?.some((s) => s.captureLevel !== "full")
         ? "screen, not proof; verifies full-capture sources only"
         : "screen, not proof",
     },
@@ -295,7 +299,7 @@ export function renderMarkdown(p) {
   L.push(
     `Window: ${p.window.from} → ${p.window.to} · ${p.volume.sessions} sessions · ${p.volume.instructions} instructions · ${p.volume.products} products`,
   );
-  L.push(`Log consistency screen: ${p.authenticity.score}/100 (${p.authenticity.note})`);
+  L.push(`Log consistency screen: ${p.authenticity.score == null ? "n/a" : `${p.authenticity.score}/100`} (${p.authenticity.note})`);
   if (p.sources?.length) {
     const src = p.sources
       .map((s) => `${s.source} (${s.captureLevel} capture${s.backend ? `, ${s.backend}` : ""}) · ${s.sessions} sessions read`)

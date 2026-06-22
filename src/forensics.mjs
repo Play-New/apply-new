@@ -159,10 +159,20 @@ export function computeForensics(parsed) {
   );
 
   // Score: weighted deductions. A screen, not a verdict.
+  //
+  // UNSCORED when no full-capture session was screened: every session-based
+  // check above iterates the (now empty) `sessions` array and passes vacuously,
+  // so a positive score would assert a clean tamper screen over ZERO verified
+  // sessions — e.g. an opencode-only bundle, or a sparse ~/.claude alongside
+  // opencode. Return null instead, mirroring the groundedness gate's "unscored
+  // is not a pass" stance. The structural sources still surface in the profile's
+  // sources block; the screen just declines to vouch for what it cannot verify.
   const weights = { high: 25, medium: 12, low: 5 };
-  let score = 100;
-  for (const c of checks) if (c.status === "flag") score -= weights[c.severity] || 5;
-  score = Math.max(0, score);
+  let score = sessions.length === 0 ? null : 100;
+  if (score !== null) {
+    for (const c of checks) if (c.status === "flag") score -= weights[c.severity] || 5;
+    score = Math.max(0, score);
+  }
 
   return { score, checks };
 }
