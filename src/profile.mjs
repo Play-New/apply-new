@@ -175,7 +175,10 @@ export function summarizeSources(parsed) {
     captureLevel: CAPTURE_LEVEL[e.source] ?? "structural",
     sessions: e.sessions,
     window: e.from ? { from: e.from, to: e.to } : null,
-    backend: null, // adapters with multiple read paths (e.g. sqlite vs JSON cache) fill this in
+    // Which read path served this source, when it has more than one (e.g.
+    // opencode's sqlite db vs its partial JSON cache). mergeSources carries it
+    // out of the adapters; null for sources with a single read path.
+    backend: parsed.backends?.[e.source] ?? null,
   }));
 }
 

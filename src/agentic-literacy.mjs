@@ -67,6 +67,21 @@ const PUBLIC_MCP_SERVERS = new Set([
   "ide",
 ]);
 
+// Non-Claude sources name the same public servers by their bare config key —
+// opencode emits "github", "gmail", "supabase" (lowercase) where Claude Code
+// records "claude_ai_GitHub" / "plugin_supabase_supabase". Normalise both to a
+// bare lowercase key so the SAME public integration is bucketed public no matter
+// which CLI logged it; otherwise an opencode GitHub MCP reads as a custom /
+// proprietary server (over-reporting, and a cross-source disagreement on the
+// identical tool). This only ever WIDENS public matching — it cannot mislabel a
+// private server as public unless that server is named exactly like a well-known
+// public one.
+const normalizeServer = (s) =>
+  String(s).toLowerCase().replace(/^claude_ai_/, "").replace(/^plugin_[^_]+_/, "");
+const PUBLIC_MCP_NORMALIZED = new Set([...PUBLIC_MCP_SERVERS].map(normalizeServer));
+const isPublicServer = (server) =>
+  PUBLIC_MCP_SERVERS.has(server) || PUBLIC_MCP_NORMALIZED.has(normalizeServer(server));
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function mcpServer(toolName) {
@@ -148,7 +163,7 @@ export function computeAgenticLiteracy(parsed) {
         // MCP classification
         const server = mcpServer(name);
         if (server) {
-          if (PUBLIC_MCP_SERVERS.has(server)) {
+          if (isPublicServer(server)) {
             publicMcpServers.add(server);
             publicMcpCalls++;
           } else {
