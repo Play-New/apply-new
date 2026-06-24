@@ -1,0 +1,88 @@
+// Follow-up fixes from the PR #5 review:
+//  - the codex launcher counts only the HEADLESS `codex exec`, not bare/
+//    housekeeping `codex` / `codex login` / `codex mcp` (parity with the
+//    `claude -p`-only rule for claude);
+//  - the per-CLI orchestration.tools counts that the narrative is fed are added
+//    to the groundedness support pool, so an honest fan-out citation isn't
+//    flagged ungrounded once a second source lands.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { buildDigest } from "../src/digest.mjs";
+import { assessGroundedness } from "../src/groundedness.mjs";
+
+const sess = (source, repo, cmds = []) => ({
+  source,
+  cwdRaw: "",
+  cwdRedacted: `C:/Users/⟨user⟩/Documents/proj/${repo}`,
+  messages: [{
+    role: "assistant",
+    ts: "2026-05-01T10:00:00.000Z",
+    textRedacted: "",
+    toolUses: cmds.map((c) => ({ name: "Bash", path: "", cmd: c, q: "" })),
+  }],
+});
+
+test("codex dispatch requires the headless `exec` subcommand, not bare/housekeeping codex", () => {
+  const cmds = [
+    "codex",                  // interactive TUI — NOT a dispatch
+    "codex login",            // housekeeping — NOT a dispatch
+    "codex mcp",              // housekeeping — NOT a dispatch
+    "codex resume",           // housekeeping — NOT a dispatch
+    'codex exec "do the thing"', // headless dispatch — counts
+    "aider --yes",            // headless dispatch — counts
+    'cd repo && opencode run "/x"', // chained launcher — counts
+  ];
+  const d = buildDigest({ sessions: [sess("claude-code", "z", cmds)] });
+  // codex exec + aider + opencode run = 3; the four bare/housekeeping codex
+  // lines must contribute 0.
+  assert.equal(d.projects[0].orchestration.dispatchCommands, 3,
+    `bare/housekeeping codex should not count: ${JSON.stringify(d.projects[0].orchestration)}`);
+});
+
+const groundProfile = () => ({
+  schema: "playnew-profile/v1",
+  contact: { name: "X" },
+  window: { from: "2026-01", to: "2026-05" },
+  volume: { products: 30, sessions: 236, instructions: 3800 },
+  summary: "Across 236 sessions on 30 products, the work blends product-build with research-first verification.",
+  cognitive: { tags: ["research-first"], narrative: null },
+  projects: [
+    {
+      id: "p1",
+      type: ["product-build"],
+      span: { from: "2026-02", to: "2026-05" },
+      sessions: 59,
+      did: "Fanned out across 2 CLIs: 38 sessions via Claude, 12 via opencode.",
+      tech: ["Supabase/Postgres"],
+      landing: { commits: 153, reverts: 0, revertChurn: "low", checksRun: true },
+      metrics: {
+        researchToMutation: 2.1,
+        delegation: 4,
+        orchestration: { delegation: 4, tools: { "claude-code": 38, opencode: 12 }, toolCount: 2, dispatchCommands: 0 },
+      },
+    },
+  ],
+  otherProjects: [],
+  trajectory: null,
+  stackAdopted: ["Supabase/Postgres"],
+  authenticity: { score: 100, manifestHash: "abc" },
+});
+
+test("per-CLI orchestration.tools counts are grounded (a fan-out citation is supported)", () => {
+  const g = assessGroundedness(groundProfile());
+  const numberAnomalies = g.anomalies.filter((a) => a.kind === "number");
+  assert.deepEqual(numberAnomalies, [],
+    `38 and 12 should be grounded by orchestration.tools: ${JSON.stringify(g.anomalies)}`);
+  assert.equal(g.score, 100);
+});
+
+test("the tools pool stays specific — a number absent from the data is still flagged", () => {
+  const p = groundProfile();
+  // 777 is clear of every pooled number (and outside the ±5% rounding window of
+  // each), so it must flag — proving the tools pool grounds only the real split.
+  p.projects[0].did = "Fanned out across 2 CLIs: 38 via Claude, 12 via opencode, plus 777 phantom runs.";
+  const g = assessGroundedness(p);
+  assert.ok(g.anomalies.some((a) => a.kind === "number" && a.anchor === "777"),
+    "777 is in neither the tools pool nor any structured field and must be flagged");
+});

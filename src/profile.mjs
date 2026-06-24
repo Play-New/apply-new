@@ -226,7 +226,7 @@ export function assembleProfile({ contact, projects, narrative, fingerprint, for
       whyRepresentative: nById(i).why_representative || null,
       tech: p.tech,
       landing: p.landing,
-      metrics: { researchToMutation: p.researchToMutation, delegation: p.delegation },
+      metrics: { researchToMutation: p.researchToMutation, delegation: p.delegation, orchestration: p.orchestration || null },
       artifact: null, // candidate opt-in
     })),
     otherProjects: others.map((p) => ({

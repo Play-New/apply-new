@@ -211,6 +211,41 @@ function classify(p) {
 
 const DESIGN_RE = /design|ui\b|typograph|layout|figma|css|color|grid|font|spacing|aesthet/i;
 
+// Generic agent-launcher commands: a session that runs one of these dispatched
+// work to another agent CLI — evidence of orchestration, independent of any one
+// framework. Extend the list as new agent CLIs appear.
+//
+// A launcher only counts as a dispatch when it is the EXECUTABLE of a
+// (sub)command, not a substring of an argument or path: anchored at `^` with a
+// trailing `(?=\s|$)`, so `cd my-codex-tests` (codex inside a path) does not
+// count while `cd x && opencode run ...` does. `\b` was wrong here precisely
+// because `-` is a word boundary, so the old pattern fired inside hyphenated
+// tokens.
+//
+// Interactive / housekeeping invocations are intentionally NOT dispatches —
+// only the HEADLESS mode of each launcher is: `claude -p`/`--print` (not bare
+// `claude`, the REPL), and `codex exec` (not bare `codex`, the TUI, nor
+// `codex login`/`mcp`/`resume`). Requiring the headless subcommand keeps the
+// two consistent; without it `codex login` would read as farmed-out work.
+const AGENT_LAUNCHER_RE = /^(?:claude\s+(?:-p|--print)|(?:opencode|crush|goose)\s+run|codex\s+exec|aider|cursor-agent)(?=\s|$)/i;
+
+// Count agent-launcher invocations in a product's shell history. Splits each
+// command on TOP-LEVEL shell separators (&&, ||, ;, |, newline) and strips
+// leading env assignments so the matcher sees the executable position of each
+// top-level sub-command. Launchers behind a wrapper (npx/sudo/time) or nested in
+// $()/subshells/control-flow bodies are NOT counted — dispatchCommands is a
+// lower bound, consistent with the toolCount note below.
+function countDispatch(cmds) {
+  let n = 0;
+  for (const cmd of cmds) {
+    for (const raw of String(cmd).split(/&&|\|\||[;|\n]/)) {
+      const part = raw.trim().replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, "");
+      if (AGENT_LAUNCHER_RE.test(part)) n++;
+    }
+  }
+  return n;
+}
+
 export function buildDigest(parsed) {
   const byRepo = new Map();
 
@@ -221,13 +256,16 @@ export function buildDigest(parsed) {
     if (!byRepo.has(key)) {
       byRepo.set(key, {
         repo: key, cwdRaw: s.cwdRaw || "", cwds: [], sessions: 0, userMessages: 0, prompts: [],
-        toolHist: {}, areas: {}, exts: {}, cmds: [], webQueries: [],
+        toolHist: {}, areas: {}, exts: {}, cmds: [], webQueries: [], sources: {},
         delegation: 0, planning: 0, firstTs: null, lastTs: null,
       });
     }
     const p = byRepo.get(key);
     if (s.cwdRaw && !p.cwds.includes(s.cwdRaw)) p.cwds.push(s.cwdRaw);
     p.sessions++;
+    // Which tool produced this session — a product touched by more than one
+    // agent CLI is a fan-out signal: one tool is orchestrating the others.
+    p.sources[s.source || "unknown"] = (p.sources[s.source || "unknown"] || 0) + 1;
     for (const m of s.messages) {
       const t = ms(m.ts);
       if (Number.isFinite(t)) {
@@ -264,6 +302,7 @@ export function buildDigest(parsed) {
       // First cluster cwd that still exists — a deleted first worktree must not
       // disable dependency detection for the whole cluster.
       const cwdRaw = resolveCwd(p.cwds, p.cwdRaw);
+      const dispatchCommands = countDispatch(p.cmds);
       const ctx = {
         mutations, designQueries,
         researchToMutation: mutations ? +(research / mutations).toFixed(2) : null,
@@ -291,6 +330,23 @@ export function buildDigest(parsed) {
           revertChurn: commits ? (reverts / Math.max(commits, 1) > 0.3 ? "high" : reverts > 0 ? "med" : "low") : "n/d",
         },
         delegation: p.delegation,
+        // Orchestration, three components together: delegating WITHIN a session
+        // (sub-agent Task calls), fanning out ACROSS CLIs (distinct tools in one
+        // product), and dispatching agent processes (launcher commands). Carried
+        // as one object so the narrative input sees all three, not just fan-out.
+        // Multi-tool or dispatchCommands > 0 ⇒ work was farmed out to other
+        // agents, not all hands-on. Framework-agnostic.
+        //
+        // NOTE: toolCount is a LOWER BOUND. Under single-source capture every
+        // session is tagged with the one tool that was ingested, so toolCount is
+        // pinned at 1 until a second source lands — absence of fan-out here is
+        // never evidence that no fan-out happened, only that one tool was read.
+        orchestration: {
+          delegation: p.delegation,
+          tools: p.sources,
+          toolCount: Object.keys(p.sources).length,
+          dispatchCommands,
+        },
         researchToMutation: ctx.researchToMutation,
         learningTopics: [...new Set(p.webQueries)].slice(0, 12),
         promptSamples: samplePrompts(p.prompts),
