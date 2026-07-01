@@ -101,6 +101,14 @@ function extractAnchors(text) {
 
 function collectSupportPool(profile) {
   const numbers = new Set();
+  // Percent anchors get their own pool. The number pool is full of COUNTS,
+  // and a count collides with a percent exactly at the fractions' edges: a 1
+  // anywhere (one delegation, median 1 session/day) equals the "100%" anchor
+  // value 1.0, a 0 equals "0%" — so any such profile silently grounded any
+  // fabricated percentage. Only share/rate-typed fields (activeDaysRatio,
+  // top3Share, multiMonthShare, percent-format trajectory shifts) may support
+  // a percent claim.
+  const ratios = new Set();
   const periods = new Set();
   const tech = new Set();
   const tags = new Set();
@@ -109,6 +117,11 @@ function collectSupportPool(profile) {
     if (n == null) return;
     const v = Number(n);
     if (Number.isFinite(v)) numbers.add(v);
+  };
+  const addRatio = (n) => {
+    if (n == null) return;
+    const v = Number(n);
+    if (Number.isFinite(v)) ratios.add(v);
   };
   const addText = (s) => {
     if (!s) return;
@@ -133,12 +146,9 @@ function collectSupportPool(profile) {
     addNumber(p?.metrics?.researchToMutation);
     addNumber(p?.metrics?.delegation);
     // Orchestration counts a narrative may cite ("N dispatches across M CLIs").
-    // Only values >= 2 pool: number anchors start at 2, so 0/1 buy nothing —
-    // and a pooled 1 grounds any fabricated "100%" percent anchor (value 1.0).
-    // toolCount would put that 1 in the pool on EVERY single-source profile;
-    // this gate keeps orchestration from adding an always-on one. (Legacy
-    // fields above may still pool a 0/1 when their data happens to carry it —
-    // a pre-existing looseness of the shared pool, not widened here.)
+    // Only values >= 2 pool: number anchors start at 2, so 0/1 buy nothing.
+    // (Percent anchors no longer read this pool at all — see the ratios set —
+    // so this gate is hygiene: counts that nothing can cite stay out.)
     const addCount = (n) => { if (Number(n) >= 2) addNumber(n); };
     addCount(p?.metrics?.orchestration?.dispatchCommands);
     addCount(p?.metrics?.orchestration?.toolCount);
@@ -170,7 +180,10 @@ function collectSupportPool(profile) {
     addNumber(d.sessions);
   }
 
-  // Practice-intensity numbers (the narrative may quote any of them, raw or as %)
+  // Practice-intensity numbers (the narrative may quote any of them, raw or
+  // as %: the fraction feeds the ratios pool, the rounded percent stays a
+  // citable number — "87%" extracts both a percent anchor 0.87 and a number
+  // anchor 87)
   const it = profile?.intensity;
   if (it) {
     addNumber(it.observedDays);
@@ -179,30 +192,42 @@ function collectSupportPool(profile) {
     addNumber(it.medianSessionsPerActiveDay);
     addNumber(it.medianSessionToolCalls);
     addNumber(it.peakDayToolCalls);
-    addNumber(it.activeDaysRatio);
+    addRatio(it.activeDaysRatio);
     if (it.activeDaysRatio != null) addNumber(Math.round(it.activeDaysRatio * 100));
   }
 
-  // Work distribution numbers (the narrative may quote any of them, raw or as %)
+  // Work distribution numbers (same fraction/rounded-percent split)
   const dist = profile?.distribution;
   if (dist) {
     addNumber(dist.meanSessionsPerProduct);
     addNumber(dist.medianSessionsPerProduct);
     addNumber(dist.multiMonthProducts);
-    addNumber(dist.top3Share);
+    addRatio(dist.top3Share);
     addNumber(Math.round(dist.top3Share * 100));
-    addNumber(dist.multiMonthShare);
+    addRatio(dist.multiMonthShare);
     addNumber(Math.round(dist.multiMonthShare * 100));
   }
 
-  // Trajectory numbers
+  // Trajectory numbers. Percent-format shifts (delegation rate, verification
+  // rate) hold fractions the prose cites as percents; number/ratio-format
+  // shifts (prompt words, research:mutation) are cited as plain numbers.
   const s = profile?.trajectory?.shifts;
-  if (s?.deltas) for (const d of s.deltas) { addNumber(d.early); addNumber(d.late); }
+  if (s?.deltas) for (const d of s.deltas) {
+    if (d.format === "percent") {
+      addRatio(d.early);
+      addRatio(d.late);
+      if (d.early != null) addNumber(Math.round(d.early * 100));
+      if (d.late != null) addNumber(Math.round(d.late * 100));
+    } else {
+      addNumber(d.early);
+      addNumber(d.late);
+    }
+  }
   if (s?.midpoint) addText(s.midpoint);
   for (const q of profile?.trajectory?.topics ?? []) { addText(q.quarter); for (const th of q.themes ?? []) addNumber(th.count); }
   for (const pr of profile?.trajectory?.principlesAdopted ?? []) addText(pr.when);
 
-  return { numbers, periods, tech, tags };
+  return { numbers, ratios, periods, tech, tags };
 }
 
 // "Supabase/Postgres" or "Playwright (E2E)" should make both "supabase",
@@ -261,7 +286,8 @@ export function assessGroundedness(profile) {
     for (const a of anchors) {
       total++;
       let ok = false;
-      if (a.kind === "number" || a.kind === "percent") ok = numberMatches(a.value, pool.numbers);
+      if (a.kind === "number") ok = numberMatches(a.value, pool.numbers);
+      else if (a.kind === "percent") ok = numberMatches(a.value, pool.ratios);
       else if (a.kind === "period") ok = pool.periods.has(a.value);
       else if (a.kind === "tech") ok = pool.tech.has(a.value);
       else if (a.kind === "tag") ok = pool.tags.has(a.value);
