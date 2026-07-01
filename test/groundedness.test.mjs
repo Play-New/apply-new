@@ -1,33 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assessGroundedness } from "../src/groundedness.mjs";
-
-const baseProfile = () => ({
-  schema: "playnew-profile/v1",
-  contact: { name: "X", email: "x@y.io", city: "Milano", status: "employed" },
-  window: { from: "2026-01", to: "2026-05" },
-  volume: { products: 30, sessions: 236, instructions: 3800 },
-  summary: null,
-  cognitive: { tags: ["research-first"], narrative: null },
-  projects: [
-    {
-      id: "p1",
-      type: ["product-build"],
-      domain: "Creator intelligence platform.",
-      span: { from: "2026-02", to: "2026-05" },
-      sessions: 59,
-      did: null,
-      whyRepresentative: null,
-      tech: ["Inngest", "Supabase/Postgres", "Playwright (E2E)"],
-      landing: { commits: 153, reverts: 0, revertChurn: "low", checksRun: true },
-      artifact: null,
-    },
-  ],
-  otherProjects: [],
-  trajectory: null,
-  stackAdopted: ["Inngest", "Supabase/Postgres"],
-  authenticity: { score: 100, manifestHash: "abc" },
-});
+import { baseProfile } from "./factories.mjs";
 
 test("prose anchored by numbers + tech + tags in the data scores 100%", () => {
   const p = baseProfile();
@@ -90,4 +64,25 @@ test("a detector-vocabulary technology (Firebase) is verified, not invisible", (
   present.cognitive.narrative = "The data layer runs on Firebase.";
   assert.ok(!assessGroundedness(present).anomalies.some((a) => a.where === "cognitive.narrative" && a.kind === "tech"),
     "Firebase in the stack should be supported, not flagged");
+});
+
+// Review follow-up on #5: orchestration counts pool into the single GLOBAL
+// support set. A toolCount of 1 — present on every single-source profile —
+// would pin the number 1 in the pool, and a "100%" percent anchor (value 1.0)
+// matches it: every profile would silently ground any fabricated "100%".
+// Counts of 0/1 are not citable as counts (number anchors start at 2), so
+// they must not be pooled at all.
+test("orchestration counts of 0/1 are not pooled (toolCount 1 must not ground '100%')", () => {
+  const p = baseProfile();
+  p.projects[0].metrics = {
+    researchToMutation: null,
+    delegation: 0,
+    orchestration: { delegation: 0, tools: { "claude-code": 59 }, toolCount: 1, toolOverlap: null, dispatchCommands: 0 },
+  };
+  p.summary = "Landed 100% of migrations without incident across 236 sessions.";
+  const g = assessGroundedness(p);
+  assert.ok(
+    g.anomalies.some((a) => a.where === "summary" && a.anchor === "100%"),
+    `the fabricated "100%" must be flagged: ${JSON.stringify(g.anomalies)}`,
+  );
 });

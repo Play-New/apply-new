@@ -8,18 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildDigest } from "../src/digest.mjs";
-
-const sess = (source, repo, cmds = []) => ({
-  source,
-  cwdRaw: "",
-  cwdRedacted: `C:/Users/⟨user⟩/Documents/proj/${repo}`,
-  messages: [{
-    role: "assistant",
-    ts: "2026-05-01T10:00:00.000Z",
-    textRedacted: "",
-    toolUses: cmds.map((c) => ({ name: "Bash", path: "", cmd: c, q: "" })),
-  }],
-});
+import { sess } from "./factories.mjs";
 
 test("multi-tool fan-out and dispatch commands surface per product", () => {
   const parsed = {
@@ -39,11 +28,13 @@ test("multi-tool fan-out and dispatch commands surface per product", () => {
   const orch = d.projects.find((p) => p.repo === "orchestrated-app");
   assert.deepEqual(orch.orchestration.tools, { "claude-code": 2, opencode: 2, crush: 1 });
   assert.equal(orch.orchestration.toolCount, 3);
+  assert.equal(orch.orchestration.toolOverlap, true); // same-day sessions: concurrent, not migration
   assert.equal(orch.orchestration.dispatchCommands, 2);
 
   const hand = d.projects.find((p) => p.repo === "handmade");
   assert.deepEqual(hand.orchestration.tools, { "claude-code": 1 });
   assert.equal(hand.orchestration.toolCount, 1);
+  assert.equal(hand.orchestration.toolOverlap, null); // one tool: nothing to overlap
   assert.equal(hand.orchestration.dispatchCommands, 0);
 });
 
@@ -56,7 +47,7 @@ test("sessions with no source are bucketed, not dropped", () => {
 
 test("dispatch counts the executable position only — not args, paths, or REPLs", () => {
   const cmds = [
-    "aider --yes", 'codex exec "do x"', "goose run", "cursor-agent", // 4 real launchers
+    'aider --message "fix"', 'codex exec "do x"', "goose run", 'cursor-agent -p "check"', // 4 real headless launchers
     "cd my-codex-tests",            // codex inside a hyphenated path — must NOT count
     "cat aider-notes.md",           // aider as an argument — must NOT count
     'cd repo && opencode run "/x"', // chained: the 2nd sub-command IS a launcher

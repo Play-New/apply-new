@@ -220,26 +220,126 @@ const DESIGN_RE = /design|ui\b|typograph|layout|figma|css|color|grid|font|spacin
 // trailing `(?=\s|$)`, so `cd my-codex-tests` (codex inside a path) does not
 // count while `cd x && opencode run ...` does. `\b` was wrong here precisely
 // because `-` is a word boundary, so the old pattern fired inside hyphenated
-// tokens.
+// tokens. No /i flag: executables are case-sensitive, and case-insensitive
+// matching re-admits sentence-initial prose ("Aider is my favorite tool") at
+// a fragment start as a phantom dispatch.
 //
-// Interactive / housekeeping invocations are intentionally NOT dispatches —
-// only the HEADLESS mode of each launcher is: `claude -p`/`--print` (not bare
-// `claude`, the REPL), and `codex exec` (not bare `codex`, the TUI, nor
-// `codex login`/`mcp`/`resume`). Requiring the headless subcommand keeps the
-// two consistent; without it `codex login` would read as farmed-out work.
-const AGENT_LAUNCHER_RE = /^(?:claude\s+(?:-p|--print)|(?:opencode|crush|goose)\s+run|codex\s+exec|aider|cursor-agent)(?=\s|$)/i;
+// Interactive / housekeeping invocations are NOT dispatches — only the
+// HEADLESS mode of each launcher is, uniformly: `claude -p`/`--print` (not
+// bare `claude`, the REPL), `codex exec` (not `codex login`/`mcp`/`resume`),
+// `aider -m`/`--msg`/`--message[-file]` (not bare `aider` or `aider --yes`),
+// `cursor-agent -p`/`--print` (not `cursor-agent login`), and
+// `opencode|crush|goose run`. LAUNCHER_FLAGS lets ordinary flags (with
+// optional values, quoted or bare) sit between the executable and the
+// headless marker, so `claude --model opus -p "x"` still counts. aider alone
+// also skips POSITIONAL tokens (`aider app.py -m "fix"` is its canonical
+// form, and aider has no subcommands to misread); the others stay flags-only
+// so a subcommand's flag never reads as the top-level headless marker
+// (`claude mcp add -p x` is not a dispatch).
+//
+// Every alternative in these fragments is first-char-disjoint on purpose:
+// `--?\w` (not `--?[\w-]+`, which parses `--flag` two ways) and a bare value
+// that cannot start a quote. Same-span ambiguity under the outer `*` is
+// exponential backtracking, and one flag-heavy non-matching command in the
+// logs would hang the whole digest.
+const LAUNCHER_FLAGS = `(?:--?\\w[\\w-]*(?:=\\S*)?(?:\\s+(?:"[^"]*"|'[^']*'|[^-\\s"']\\S*))?\\s+)*`;
+const LAUNCHER_TOKENS = `(?:(?:"[^"]*"|'[^']*'|[^\\s"'])+\\s+)*?`;
+const AGENT_LAUNCHER_RE = new RegExp(
+  "^(?:" +
+    [
+      `claude\\s+${LAUNCHER_FLAGS}(?:-p|--print)`,
+      `(?:opencode|crush|goose)\\s+${LAUNCHER_FLAGS}run`,
+      `codex\\s+${LAUNCHER_FLAGS}exec`,
+      `aider\\s+${LAUNCHER_TOKENS}(?:-m|--msg|--message(?:-file)?)`,
+      `cursor-agent\\s+${LAUNCHER_FLAGS}(?:-p|--print)`,
+    ].join("|") +
+    ")(?=\\s|$)",
+);
 
-// Count agent-launcher invocations in a product's shell history. Splits each
-// command on TOP-LEVEL shell separators (&&, ||, ;, |, newline) and strips
-// leading env assignments so the matcher sees the executable position of each
-// top-level sub-command. Launchers behind a wrapper (npx/sudo/time) or nested in
-// $()/subshells/control-flow bodies are NOT counted — dispatchCommands is a
-// lower bound, consistent with the toolCount note below.
+// Leading env assignments (`FOO=bar`, `FOO="two words"`, `FOO=a\ b`) before
+// the executable. Value atoms are first-char-disjoint (quote, backslash,
+// plain) — linear matching, and an escaped space stays part of the value so
+// `FOO=a\ claude -p x` correctly leaves `-p` as the executable.
+const ENV_ASSIGN_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"(?:[^"\\]|\\.)*"|'[^']*'|\\.|[^\s"'\\])*\s+)+/;
+
+// Drop heredoc bodies before splitting: `cat > run.sh <<'EOF' … EOF` carries
+// arbitrary text (often agent-written scripts that themselves mention
+// launchers) that never executes in this command. `<<<` here-strings are not
+// heredocs; plain `<<` closes only at an unindented delimiter line, `<<-` also
+// at a tab-indented one (shell semantics — an indented "EOF" inside a plain
+// heredoc is still body, and counting its text would break the lower bound).
+// A `<<` inside quoted or commented prose can over-strip the following lines —
+// that errs toward undercount, which the lower-bound contract absorbs.
+function stripHeredocs(text) {
+  if (!text.includes("<<")) return text;
+  const out = [];
+  let term = null;
+  let dashed = false;
+  for (const line of text.split("\n")) {
+    if (term) {
+      if ((dashed ? line.replace(/^\t+/, "") : line) === term) term = null;
+      continue;
+    }
+    out.push(line);
+    const m = line.match(/(?<!<)<<(?!<)(-?)\s*(["']?)([A-Za-z_][\w.-]*)\2/);
+    if (m) { term = m[3]; dashed = m[1] === "-"; }
+  }
+  return out.join("\n");
+}
+
+// Split a command at top-level shell separators (&&, ||, ;, |, single & and
+// newline) with quote awareness: a separator inside '…' or "…" (or escaped)
+// is argument text, not a boundary — `git commit -m "a; claude -p b"` is one
+// sub-command whose executable is git. A `#` at word start opens a comment
+// (skipped to end of line), so an apostrophe in `# can't wait` never opens a
+// phantom quote that would swallow the next line's dispatch.
+function splitTopLevel(text) {
+  const parts = [];
+  let cur = "";
+  let quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      cur += c;
+      if (c === "\\" && quote === '"' && i + 1 < text.length) cur += text[++i];
+      else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "'" || c === '"') { quote = c; cur += c; continue; }
+    if (c === "\\") { cur += c; if (i + 1 < text.length) cur += text[++i]; continue; }
+    if (c === "#" && (cur === "" || /\s$/.test(cur))) {
+      while (i + 1 < text.length && text[i + 1] !== "\n") i++;
+      continue;
+    }
+    if (c === "&" || c === "|" || c === ";" || c === "\n") {
+      parts.push(cur);
+      cur = "";
+      if ((c === "&" || c === "|") && text[i + 1] === c) i++;
+      continue;
+    }
+    cur += c;
+  }
+  parts.push(cur);
+  return parts;
+}
+
+// Count agent-launcher invocations in a product's shell history. Heredoc
+// bodies are dropped, then each command splits at top-level separators
+// (quote-aware) and the matcher sees the executable position of each
+// sub-command: leading subshell/brace openers and control-flow keywords
+// (`(cd x && claude -p y)`, `do claude -p "$f"`) are transparent, as are env
+// assignments. Launchers behind a wrapper (npx/sudo/time) or inside $()
+// substitutions are still NOT counted — dispatchCommands is a lower bound,
+// consistent with the toolCount note below.
 function countDispatch(cmds) {
   let n = 0;
   for (const cmd of cmds) {
-    for (const raw of String(cmd).split(/&&|\|\||[;|\n]/)) {
-      const part = raw.trim().replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, "");
+    for (const raw of splitTopLevel(stripHeredocs(String(cmd)))) {
+      const part = raw
+        .trim()
+        .replace(/^[({\s]+/, "")
+        .replace(/^(?:do|then|else)\s+/, "")
+        .replace(ENV_ASSIGN_RE, "");
       if (AGENT_LAUNCHER_RE.test(part)) n++;
     }
   }
@@ -256,21 +356,28 @@ export function buildDigest(parsed) {
     if (!byRepo.has(key)) {
       byRepo.set(key, {
         repo: key, cwdRaw: s.cwdRaw || "", cwds: [], sessions: 0, userMessages: 0, prompts: [],
-        toolHist: {}, areas: {}, exts: {}, cmds: [], webQueries: [], sources: {},
+        toolHist: {}, areas: {}, exts: {}, cmds: [], webQueries: [], sources: {}, sourceSpans: {},
         delegation: 0, planning: 0, firstTs: null, lastTs: null,
       });
     }
     const p = byRepo.get(key);
     if (s.cwdRaw && !p.cwds.includes(s.cwdRaw)) p.cwds.push(s.cwdRaw);
     p.sessions++;
-    // Which tool produced this session — a product touched by more than one
-    // agent CLI is a fan-out signal: one tool is orchestrating the others.
-    p.sources[s.source || "unknown"] = (p.sources[s.source || "unknown"] || 0) + 1;
+    // Which tool produced this session. mergeSources guarantees the tag for
+    // everything the shipped adapters emit; "unknown" is the honest bucket for
+    // hand-built bundles and never counts as a distinct CLI (see toolCount).
+    const src = s.source || "unknown";
+    p.sources[src] = (p.sources[src] || 0) + 1;
     for (const m of s.messages) {
       const t = ms(m.ts);
       if (Number.isFinite(t)) {
         if (!p.firstTs || t < p.firstTs) p.firstTs = t;
         if (!p.lastTs || t > p.lastTs) p.lastTs = t;
+        // Per-source activity span, to tell concurrent fan-out apart from a
+        // sequential migration between tools (see toolOverlap below).
+        const span = p.sourceSpans[src] || (p.sourceSpans[src] = { first: t, last: t });
+        if (t < span.first) span.first = t;
+        if (t > span.last) span.last = t;
       }
       if (m.role === "user" && m.textRedacted.trim()) {
         p.userMessages++;
@@ -303,6 +410,15 @@ export function buildDigest(parsed) {
       // disable dependency detection for the whole cluster.
       const cwdRaw = resolveCwd(p.cwds, p.cwdRaw);
       const dispatchCommands = countDispatch(p.cmds);
+      const knownTools = Object.keys(p.sources).filter((k) => k !== "unknown");
+      const knownSpans = Object.entries(p.sourceSpans)
+        .filter(([k]) => k !== "unknown")
+        .map(([, v]) => v);
+      let toolOverlap = null;
+      if (knownTools.length >= 2 && knownSpans.length >= 2) {
+        toolOverlap = knownSpans.some((a, i) =>
+          knownSpans.slice(i + 1).some((b) => a.first <= b.last && b.first <= a.last));
+      }
       const ctx = {
         mutations, designQueries,
         researchToMutation: mutations ? +(research / mutations).toFixed(2) : null,
@@ -334,17 +450,27 @@ export function buildDigest(parsed) {
         // (sub-agent Task calls), fanning out ACROSS CLIs (distinct tools in one
         // product), and dispatching agent processes (launcher commands). Carried
         // as one object so the narrative input sees all three, not just fan-out.
-        // Multi-tool or dispatchCommands > 0 ⇒ work was farmed out to other
-        // agents, not all hands-on. Framework-agnostic.
+        // Framework-agnostic. The counts DESCRIBE; nothing ranks (ADR-001).
         //
-        // NOTE: toolCount is a LOWER BOUND. Under single-source capture every
-        // session is tagged with the one tool that was ingested, so toolCount is
-        // pinned at 1 until a second source lands — absence of fan-out here is
-        // never evidence that no fan-out happened, only that one tool was read.
+        // toolCount counts distinct KNOWN tools ("unknown" is honest bucketing
+        // for an untagged session, not a distinct CLI — the rest of the
+        // pipeline would call the same session claude-code, and a tag can't
+        // manufacture fan-out). toolOverlap tells concurrent fan-out apart
+        // from sequential migration: true when at least two known tools'
+        // activity spans intersect, false when their eras are disjoint (the
+        // candidate switched tools, nothing orchestrated anything), null when
+        // fewer than two spans exist to compare.
+        //
+        // NOTE: every count is a LOWER BOUND. Under single-source capture
+        // every session is tagged with the one tool that was ingested, so
+        // toolCount is pinned at 1 until a second source lands — absence of
+        // fan-out here is never evidence that no fan-out happened, only that
+        // one tool was read.
         orchestration: {
           delegation: p.delegation,
           tools: p.sources,
-          toolCount: Object.keys(p.sources).length,
+          toolCount: Math.max(knownTools.length, 1),
+          toolOverlap,
           dispatchCommands,
         },
         researchToMutation: ctx.researchToMutation,

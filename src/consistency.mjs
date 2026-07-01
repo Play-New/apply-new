@@ -54,6 +54,40 @@ export function assessStructure(profile) {
     issues.push(`intensity.activeDays is ${it.activeDays} but the observed window is only ${it.observedDays} days`);
   }
 
+  // Orchestration invariants (per project, when the block is present). The
+  // orchestration counts are citable in prose (groundedness pools them), so
+  // they need the same tamper posture as sessions: every one re-derives from
+  // data already in the profile, and an edit that inflates one breaks an
+  // equality it cannot also fix. Per-CLI session counts sum to the project's
+  // sessions (each session is tagged exactly once), toolCount re-derives from
+  // the split ("unknown" is not a distinct CLI), and the two delegation
+  // copies agree.
+  for (const p of projects) {
+    const o = p?.metrics?.orchestration;
+    if (!o) continue;
+    const tools = o.tools ?? {};
+    const toolSum = Object.values(tools).reduce((n, v) => n + (Number(v) || 0), 0);
+    if (p.sessions != null && toolSum !== Number(p.sessions)) {
+      issues.push(`${p.id}: orchestration.tools sums to ${toolSum} sessions but the project claims ${p.sessions}`);
+    }
+    // A tools entry with no sessions never touched the product — it can only
+    // exist to pad toolCount into a phantom fan-out claim (the sum invariant
+    // alone tolerates a smuggled zero).
+    for (const [tool, v] of Object.entries(tools)) {
+      if (!(Number(v) >= 1)) {
+        issues.push(`${p.id}: orchestration.tools.${tool} is ${v} — a CLI with no sessions cannot have touched the product`);
+      }
+    }
+    const knownTools = Object.keys(tools).filter((k) => k !== "unknown").length;
+    const derivedCount = Math.max(knownTools, 1);
+    if (o.toolCount != null && Number(o.toolCount) !== derivedCount) {
+      issues.push(`${p.id}: orchestration.toolCount is ${o.toolCount} but the tools split re-derives ${derivedCount}`);
+    }
+    if (o.delegation != null && p.metrics?.delegation != null && Number(o.delegation) !== Number(p.metrics.delegation)) {
+      issues.push(`${p.id}: metrics.delegation is ${p.metrics.delegation} but orchestration.delegation says ${o.delegation}`);
+    }
+  }
+
   const auth = profile?.authenticity?.score;
   if (auth != null && (auth < 0 || auth > 100)) issues.push(`authenticity.score out of range: ${auth}`);
   const ground = profile?.groundedness?.score;
@@ -129,6 +163,35 @@ export function assessAgainstLogs(profile, digestProjects, opts = {}) {
     }
     if ((Number(p.landing?.commits) || 0) > (d.landing?.commits || 0)) {
       excess(`${p.id} (${p.repoLabel}): claims ${p.landing.commits} commits, logs show ${d.landing?.commits ?? 0}`);
+    }
+    // Orchestration counts, same one-directional gate: per-CLI session counts
+    // and dispatch counts only grow with ongoing use, so a claim above the
+    // re-derivation is pruning or inflation — the numbers groundedness lets
+    // the prose cite must also survive re-derivation. dispatchCommands has a
+    // third innocent cause the others don't: it is matcher-derived, so a tool
+    // update that tightens dispatch detection shrinks the re-derivation on
+    // unchanged logs. The message names it; the remedy is the same either
+    // way: regenerate.
+    const co = p.metrics?.orchestration;
+    const dor = d.orchestration;
+    if (co && dor) {
+      if ((Number(co.dispatchCommands) || 0) > (dor.dispatchCommands || 0)) {
+        excess(`${p.id} (${p.repoLabel}): claims ${co.dispatchCommands} agent dispatches, logs re-derive ${dor.dispatchCommands ?? 0} (dispatch detection may also have changed in an update — regenerate)`);
+      }
+      for (const [tool, n] of Object.entries(co.tools ?? {})) {
+        if ((Number(n) || 0) > (dor.tools?.[tool] || 0)) {
+          excess(`${p.id} (${p.repoLabel}): claims ${n} sessions via ${tool}, logs show ${dor.tools?.[tool] ?? 0}`);
+        }
+      }
+      if ((Number(co.delegation) || 0) > (dor.delegation || 0)) {
+        excess(`${p.id} (${p.repoLabel}): claims ${co.delegation} sub-agent delegations, logs show ${dor.delegation ?? 0}`);
+      }
+      // toolOverlap is one-directional too: ongoing use can only flip it
+      // false -> true, and the flip is exactly what turns "migration" prose
+      // into "concurrent fan-out" — a hand-edit worth its own gate.
+      if (co.toolOverlap === true && dor.toolOverlap === false) {
+        excess(`${p.id} (${p.repoLabel}): claims concurrent multi-CLI use (toolOverlap true) but the logs re-derive disjoint eras`);
+      }
     }
   }
 

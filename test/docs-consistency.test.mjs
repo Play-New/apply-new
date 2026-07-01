@@ -96,3 +96,54 @@ test("submit --dry-run and its output file are documented in all three user surf
     assert.ok(text.includes("payload-preview.json"), `${name} must name the preview file`);
   }
 });
+
+// --- orchestration disclosure (review follow-up on #5) -------------------------
+// 8. PR #5 added per-project orchestration metrics to the submitted payload but
+//    PRIVACY.md's consent enumeration (§2) was not updated — the previous two
+//    payload-shape changes (sources block, intensity) both updated PRIVACY in
+//    the same commit, and nothing catches the drift class. Pin the disclosure.
+test("PRIVACY §2 consent enumeration discloses the per-project orchestration counts", () => {
+  const sec2 = privacy.slice(privacy.indexOf("## 2. What we collect"), privacy.indexOf("## 2a."));
+  assert.ok(sec2.length > 0, "PRIVACY must keep §2 and §2a headings");
+  assert.ok(/orchestration/i.test(sec2), "PRIVACY §2 must disclose the orchestration counts");
+  assert.ok(/agent CLI|per-CLI/i.test(sec2), "PRIVACY §2 must say the split is per agent CLI");
+});
+
+test("PRIVACY §7 transparency list names the orchestration signals", () => {
+  const sec7 = privacy.slice(privacy.indexOf("## 7."), privacy.indexOf("## 8."));
+  assert.ok(/orchestration/i.test(sec7), "PRIVACY §7 must name the orchestration counts among the measured signals");
+});
+
+// 9. The narrative model receives per-project orchestration data, but neither
+//    narrative surface (the SYSTEM prompt, the slash command) described the
+//    field — and the "toolCount is a LOWER BOUND under single-source capture"
+//    caveat lived only as a code comment in digest.mjs, invisible to the one
+//    consumer that interprets the data. Without it the model is invited to
+//    read {toolCount: 1, dispatchCommands: 0} as "no fan-out happened", and
+//    disjoint-era multi-tool as concurrent orchestration.
+test("both narrative surfaces describe the orchestration input and its caveats", () => {
+  for (const [name, text] of [["profile-llm SYSTEM", llmSrc], ["slash command", command]]) {
+    assert.ok(text.includes("orchestration"), `${name} must describe the orchestration field`);
+    assert.ok(/lower bound/i.test(text), `${name} must carry the lower-bound caveat`);
+    assert.ok(text.includes("toolOverlap"), `${name} must explain toolOverlap`);
+    assert.ok(/migration/i.test(text), `${name} must warn that multi-tool without overlap may be migration, not fan-out`);
+  }
+});
+
+// 10. PRIVACY §7 says "This file and the README describe ... the per-product
+//     orchestration counts" — so the README half of that claim must be true,
+//     and stay true.
+test("README describes the per-product orchestration counts PRIVACY §7 attributes to it", () => {
+  assert.ok(/orchestration counts/i.test(readme), "README must describe the per-product orchestration counts");
+  assert.ok(/agent CLI/i.test(readme), "README must say the split is per agent CLI");
+});
+
+// 11. dispatchCommands counts headless agent dispatch INCLUDING the same CLI
+//     (claude -p from a Claude Code session is the most common case). A surface
+//     that presents dispatchCommands > 0 as evidence of CROSS-CLI fan-out
+//     licenses a claim the data does not show.
+test("all three surfaces say dispatch may target the same CLI, not only another", () => {
+  for (const [name, text] of [["profile-llm SYSTEM", llmSrc], ["slash command", command], ["PRIVACY", privacy]]) {
+    assert.ok(/same (CLI|tool)/i.test(text), `${name} must say dispatch may target the same CLI/tool`);
+  }
+});

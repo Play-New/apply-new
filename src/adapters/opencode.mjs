@@ -424,7 +424,12 @@ export function mergeSources(...parsedList) {
     source: sources.map((p) => p.source).join("+") || "none",
     root: sources[0]?.root ?? null,
     files: sources.flatMap((p) => p.files ?? []),
-    sessions: sources.flatMap((p) => p.sessions ?? []),
+    // Both shipped adapters stamp source per session; the merge seam
+    // re-guarantees it so every downstream consumer (digest fan-out, sources
+    // summary, forensics scoping) reads one contract even if a future adapter
+    // forgets to stamp.
+    sessions: sources.flatMap((p) =>
+      (p.sessions ?? []).map((s) => (s.source || !p.source ? s : { ...s, source: p.source }))),
     compactionSummaries: sources.flatMap((p) => p.compactionSummaries ?? []),
     redaction: {
       hits: sources.reduce((n, p) => n + (p.redaction?.hits ?? 0), 0),
