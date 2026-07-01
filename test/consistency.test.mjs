@@ -158,6 +158,97 @@ test("logs: no re-derived intensity given means no intensity checks (old call sh
   assert.deepEqual(issues, []);
 });
 
+// --- orchestration claims (review follow-up on #5) ----------------------------
+// The commit made orchestration.tools/toolCount/dispatchCommands citable
+// (pooled into the groundedness support set) but nothing re-derived them: a
+// hand-edited {"claude-code": 9000} plus matching prose passed every gate.
+// Structure pins the free invariants; the logs layer re-checks the counts.
+
+test("structure: orchestration.tools must sum to the project's sessions", () => {
+  const p = honestProfile();
+  p.projects[0].metrics = { delegation: 2, orchestration: { delegation: 2, tools: { "claude-code": 9000 }, toolCount: 1, toolOverlap: null, dispatchCommands: 0 } };
+  const { issues } = assessStructure(p);
+  assert.ok(issues.some((i) => i.includes("orchestration.tools")), issues.join("; "));
+  p.projects[0].metrics.orchestration.tools = { "claude-code": 10 }; // = sessions
+  assert.deepEqual(assessStructure(p).issues, []);
+});
+
+test("structure: toolCount must re-derive from the tools split (unknown excluded)", () => {
+  const p = honestProfile();
+  p.projects[0].metrics = { delegation: 0, orchestration: { delegation: 0, tools: { "claude-code": 8, unknown: 2 }, toolCount: 2, toolOverlap: null, dispatchCommands: 0 } };
+  const { issues } = assessStructure(p);
+  assert.ok(issues.some((i) => i.includes("toolCount")), issues.join("; "));
+  p.projects[0].metrics.orchestration.toolCount = 1; // unknown is not a distinct CLI
+  assert.deepEqual(assessStructure(p).issues, []);
+});
+
+test("structure: the two delegation copies must agree", () => {
+  const p = honestProfile();
+  p.projects[0].metrics = { delegation: 4, orchestration: { delegation: 9, tools: { "claude-code": 10 }, toolCount: 1, toolOverlap: null, dispatchCommands: 0 } };
+  const { issues } = assessStructure(p);
+  assert.ok(issues.some((i) => i.includes("delegation")), issues.join("; "));
+});
+
+test("logs: inflated dispatch and per-CLI counts are excess claims", () => {
+  const p = honestProfile();
+  p.projects[0].metrics = { delegation: 0, orchestration: { delegation: 0, tools: { "claude-code": 10 }, toolCount: 1, toolOverlap: null, dispatchCommands: 7 } };
+  const d = digestProjects();
+  d[0].orchestration = { delegation: 0, tools: { "claude-code": 6 }, toolCount: 1, toolOverlap: null, dispatchCommands: 2 };
+  const { issues, excessClaims } = assessAgainstLogs(p, d);
+  assert.ok(issues.some((i) => i.includes("agent dispatches")), issues.join("; "));
+  assert.ok(issues.some((i) => i.includes("via claude-code")), issues.join("; "));
+  assert.equal(excessClaims, 2);
+  // dispatchCommands is matcher-derived, so an update that tightens detection
+  // shrinks the re-derivation on unchanged logs — the message must name the
+  // innocent cause and its remedy, not only accuse pruning/inflation.
+  assert.ok(issues.some((i) => i.includes("agent dispatches") && i.includes("regenerate")), issues.join("; "));
+});
+
+test("structure: a zero-session CLI cannot pad the tools split (phantom fan-out)", () => {
+  const p = honestProfile();
+  // Sum invariant holds (10+0=10) and toolCount re-derives to 2 — but a CLI
+  // with zero sessions never touched the product; it exists only to make
+  // "fanned out across 2 CLIs" groundable.
+  p.projects[0].metrics = { delegation: 0, orchestration: { delegation: 0, tools: { "claude-code": 10, opencode: 0 }, toolCount: 2, toolOverlap: true, dispatchCommands: 0 } };
+  const { issues } = assessStructure(p);
+  assert.ok(issues.some((i) => i.includes("opencode")), issues.join("; "));
+});
+
+test("logs: inflated delegation is an excess claim like every other orchestration count", () => {
+  const p = honestProfile();
+  p.projects[0].metrics = { delegation: 9000, orchestration: { delegation: 9000, tools: { "claude-code": 10 }, toolCount: 1, toolOverlap: null, dispatchCommands: 0 } };
+  assert.deepEqual(assessStructure(p).issues, [], "copies agree, structure alone cannot see it");
+  const d = digestProjects();
+  d[0].orchestration = { delegation: 3, tools: { "claude-code": 10 }, toolCount: 1, toolOverlap: null, dispatchCommands: 0 };
+  const { issues, excessClaims } = assessAgainstLogs(p, d);
+  assert.ok(issues.some((i) => i.includes("delegation")), issues.join("; "));
+  assert.equal(excessClaims, 1);
+});
+
+test("logs: a hand-flipped toolOverlap (migration -> concurrent) is an excess claim", () => {
+  const p = honestProfile();
+  p.projects[0].metrics = { delegation: 0, orchestration: { delegation: 0, tools: { "claude-code": 10 }, toolCount: 1, toolOverlap: true, dispatchCommands: 0 } };
+  const d = digestProjects();
+  d[0].orchestration = { delegation: 0, tools: { "claude-code": 10 }, toolCount: 1, toolOverlap: false, dispatchCommands: 0 };
+  const { issues, excessClaims } = assessAgainstLogs(p, d);
+  assert.ok(issues.some((i) => i.includes("toolOverlap")), issues.join("; "));
+  assert.equal(excessClaims, 1);
+  // growth direction stays green: false -> true is ongoing use adding overlap
+  p.projects[0].metrics.orchestration.toolOverlap = false;
+  d[0].orchestration.toolOverlap = true;
+  assert.deepEqual(assessAgainstLogs(p, d).issues, []);
+});
+
+test("logs: orchestration growth since generation stays green (one-directional gate)", () => {
+  const p = honestProfile();
+  p.projects[0].metrics = { delegation: 0, orchestration: { delegation: 0, tools: { "claude-code": 10 }, toolCount: 1, toolOverlap: null, dispatchCommands: 2 } };
+  const d = digestProjects();
+  d[0].orchestration = { delegation: 0, tools: { "claude-code": 15, opencode: 3 }, toolCount: 2, toolOverlap: true, dispatchCommands: 9 };
+  const { issues, excessClaims } = assessAgainstLogs(p, d);
+  assert.deepEqual(issues, []);
+  assert.equal(excessClaims, 0);
+});
+
 // --- the submit gate (defect-to-test) ----------------------------------------
 // The gate read `g.score != null && g.score < 60` — a profile whose prose had
 // fewer than 4 checkable anchors scored null and sailed through the exact gate

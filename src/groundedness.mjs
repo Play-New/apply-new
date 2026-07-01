@@ -133,14 +133,21 @@ function collectSupportPool(profile) {
     addNumber(p?.metrics?.researchToMutation);
     addNumber(p?.metrics?.delegation);
     // Orchestration counts a narrative may cite ("N dispatches across M CLIs").
-    addNumber(p?.metrics?.orchestration?.dispatchCommands);
-    addNumber(p?.metrics?.orchestration?.toolCount);
+    // Only values >= 2 pool: number anchors start at 2, so 0/1 buy nothing —
+    // and a pooled 1 grounds any fabricated "100%" percent anchor (value 1.0).
+    // toolCount would put that 1 in the pool on EVERY single-source profile;
+    // this gate keeps orchestration from adding an always-on one. (Legacy
+    // fields above may still pool a 0/1 when their data happens to carry it —
+    // a pre-existing looseness of the shared pool, not widened here.)
+    const addCount = (n) => { if (Number(n) >= 2) addNumber(n); };
+    addCount(p?.metrics?.orchestration?.dispatchCommands);
+    addCount(p?.metrics?.orchestration?.toolCount);
     // The narrative is fed the per-CLI session split (orchestration.tools, e.g.
     // {"claude-code": 38, opencode: 12}); pool those counts too, so once a
     // second source lands a narrative citing "38 via Claude, 12 via opencode" is
     // grounded, not flagged. (Single-source: tools is {claude-code: p.sessions},
     // already pooled via p.sessions above — so this is inert until a 2nd source.)
-    for (const v of Object.values(p?.metrics?.orchestration?.tools ?? {})) addNumber(v);
+    for (const v of Object.values(p?.metrics?.orchestration?.tools ?? {})) addCount(v);
     addText(p?.span?.from);
     addText(p?.span?.to);
     for (const t of p.tech ?? []) for (const w of splitTech(t)) tech.add(w);

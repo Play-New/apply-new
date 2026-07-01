@@ -10,18 +10,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildDigest } from "../src/digest.mjs";
 import { assessGroundedness } from "../src/groundedness.mjs";
-
-const sess = (source, repo, cmds = []) => ({
-  source,
-  cwdRaw: "",
-  cwdRedacted: `C:/Users/⟨user⟩/Documents/proj/${repo}`,
-  messages: [{
-    role: "assistant",
-    ts: "2026-05-01T10:00:00.000Z",
-    textRedacted: "",
-    toolUses: cmds.map((c) => ({ name: "Bash", path: "", cmd: c, q: "" })),
-  }],
-});
+import { sess, baseProfile } from "./factories.mjs";
 
 test("codex dispatch requires the headless `exec` subcommand, not bare/housekeeping codex", () => {
   const cmds = [
@@ -30,44 +19,29 @@ test("codex dispatch requires the headless `exec` subcommand, not bare/housekeep
     "codex mcp",              // housekeeping — NOT a dispatch
     "codex resume",           // housekeeping — NOT a dispatch
     'codex exec "do the thing"', // headless dispatch — counts
-    "aider --yes",            // headless dispatch — counts
+    'aider --message "do y"', // headless dispatch — counts
+    "aider --yes",            // interactive with autoconfirm — NOT a dispatch
     'cd repo && opencode run "/x"', // chained launcher — counts
   ];
   const d = buildDigest({ sessions: [sess("claude-code", "z", cmds)] });
-  // codex exec + aider + opencode run = 3; the four bare/housekeeping codex
-  // lines must contribute 0.
+  // codex exec + aider --message + opencode run = 3; the bare/housekeeping
+  // codex and aider lines must contribute 0.
   assert.equal(d.projects[0].orchestration.dispatchCommands, 3,
-    `bare/housekeeping codex should not count: ${JSON.stringify(d.projects[0].orchestration)}`);
+    `bare/housekeeping launchers should not count: ${JSON.stringify(d.projects[0].orchestration)}`);
 });
 
-const groundProfile = () => ({
-  schema: "playnew-profile/v1",
-  contact: { name: "X" },
-  window: { from: "2026-01", to: "2026-05" },
-  volume: { products: 30, sessions: 236, instructions: 3800 },
-  summary: "Across 236 sessions on 30 products, the work blends product-build with research-first verification.",
-  cognitive: { tags: ["research-first"], narrative: null },
-  projects: [
-    {
-      id: "p1",
-      type: ["product-build"],
-      span: { from: "2026-02", to: "2026-05" },
-      sessions: 59,
-      did: "Fanned out across 2 CLIs: 38 sessions via Claude, 12 via opencode.",
-      tech: ["Supabase/Postgres"],
-      landing: { commits: 153, reverts: 0, revertChurn: "low", checksRun: true },
-      metrics: {
-        researchToMutation: 2.1,
-        delegation: 4,
-        orchestration: { delegation: 4, tools: { "claude-code": 38, opencode: 12 }, toolCount: 2, dispatchCommands: 0 },
-      },
-    },
-  ],
-  otherProjects: [],
-  trajectory: null,
-  stackAdopted: ["Supabase/Postgres"],
-  authenticity: { score: 100, manifestHash: "abc" },
-});
+const groundProfile = () => {
+  const p = baseProfile();
+  p.summary = "Across 236 sessions on 30 products, the work blends product-build with research-first verification.";
+  p.projects[0].sessions = 50; // = the per-CLI split below (honest by construction)
+  p.projects[0].did = "Fanned out across 2 CLIs: 38 sessions via Claude, 12 via opencode.";
+  p.projects[0].metrics = {
+    researchToMutation: 2.1,
+    delegation: 4,
+    orchestration: { delegation: 4, tools: { "claude-code": 38, opencode: 12 }, toolCount: 2, toolOverlap: true, dispatchCommands: 0 },
+  };
+  return p;
+};
 
 test("per-CLI orchestration.tools counts are grounded (a fan-out citation is supported)", () => {
   const g = assessGroundedness(groundProfile());

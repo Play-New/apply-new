@@ -326,6 +326,21 @@ export function renderMarkdown(p) {
     L.push(`\n### ${pr.domain || "(domain)"}  ·  ${pr.type.join(" · ")}${headTail}`);
     L.push(`${pr.span.from ?? "n/a"}→${pr.span.to ?? "n/a"} · ${pr.sessions} sessions · ${land(pr.landing)}`);
     if (pr.tech.length) L.push(`stack: ${pr.tech.join(", ")}`);
+    // The orchestration data candidate.json submits, on the human review
+    // surface too. Rendered only when it says something (multi-tool, dispatch
+    // or delegation counts) — a single-tool zero line is noise, and the exact
+    // payload stays inspectable via submit --dry-run.
+    const o = pr.metrics?.orchestration;
+    if (o && (o.toolCount >= 2 || o.dispatchCommands > 0 || o.delegation > 0)) {
+      const bits = [];
+      const tools = Object.entries(o.tools ?? {}).map(([k, v]) => `${k} ${v}`).join(" + ");
+      if (o.toolCount >= 2 && tools) {
+        bits.push(`sessions by tool: ${tools}${o.toolOverlap === false ? " (different periods)" : ""}`);
+      }
+      if (o.dispatchCommands > 0) bits.push(`${o.dispatchCommands} agent dispatches`);
+      if (o.delegation > 0) bits.push(`${o.delegation} sub-agent delegations`);
+      L.push(`orchestration: ${bits.join(" · ")}`);
+    }
     if (pr.did) L.push(pr.did);
     if (pr.whyRepresentative) L.push(`_why representative:_ ${pr.whyRepresentative}`);
     L.push(`artifact: ${pr.artifact ? pr.artifact.label : "— (none attached)"}`);
