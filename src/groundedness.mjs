@@ -34,11 +34,16 @@ const TECH_NAMES = [
 // detection and verification can never drift apart. A stoplist drops the generic
 // English words that leak from descriptive labels ("event-driven jobs",
 // "analytics") so they don't become spurious tech anchors.
+//
+// Exported because share/tech-lexicon.json is generated from it (npm run
+// lexicon) — the checked-in artifact the play-new-dashboard intake vendors so
+// its groundedness recompute extracts the same tech anchors this module does.
+// test/lexicon-artifact.test.mjs fails when the artifact goes stale.
 const LEXICON_STOP = new Set([
   "event-driven", "jobs", "rich", "text", "analytics", "email", "headless",
   "cms", "pdf", "monorepo", "google", "motion", "hook", "form", "shell",
 ]);
-const TECH_LEXICON = [...new Set([...TECH_NAMES, ...labelVocabulary()].flatMap(splitTech))]
+export const TECH_LEXICON = [...new Set([...TECH_NAMES, ...labelVocabulary()].flatMap(splitTech))]
   .filter((t) => t.length >= 3 && !LEXICON_STOP.has(t));
 
 // AI-tooling vocabulary — always considered grounded, since the candidate is
