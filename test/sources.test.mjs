@@ -62,6 +62,23 @@ test("summarizeSources: a codex session reports structural capture in its own gr
   assert.equal(claudeEntry.captureLevel, "full", "claude-code must stay full capture, not get pulled down by codex");
 });
 
+test("summarizeSources: a pi session reports structural capture in its own group", () => {
+  const parsed = {
+    sessions: [
+      sess("claude-code", "a", "2026-04-03T10:00:00Z", "2026-04-03T11:00:00Z"),
+      factorySess("pi", "app"),
+    ],
+  };
+  const s = summarizeSources(parsed);
+  assert.equal(s.length, 2, `expected claude-code and pi as separate groups, got ${JSON.stringify(s)}`);
+  const piEntry = s.find((e) => e.source === "pi");
+  assert.ok(piEntry, "pi must have its own group in the sources block");
+  assert.equal(piEntry.captureLevel, "structural");
+  assert.equal(piEntry.sessions, 1);
+  const claudeEntry = s.find((e) => e.source === "claude-code");
+  assert.equal(claudeEntry.captureLevel, "full", "claude-code must stay full capture, not get pulled down by pi");
+});
+
 const assembleArgs = (extra = {}) => ({
   contact: { name: "X", email: "x@y.z", city: "C", status: "freelance" },
   projects: [{ repo: "app", selected: true, type: ["feature-work"], from: "2026-05", to: "2026-05", sessions: 3, userMessages: 9, tech: [], landing: {}, researchToMutation: null, delegation: 0, topAreas: {} }],
@@ -120,6 +137,21 @@ test("forensics: structural-source sessions are excluded, never passed vacuously
   const orphans = {
     ...sess("opencode", "oc", "2026-05-01T10:00:00Z"),
     chain: Array.from({ length: 10 }, (_, i) => ({ uuid: `oc-${i}`, parentUuid: `missing-${i}`, ts: "2026-05-01T10:00:00Z" })),
+  };
+  const clean = sess("claude-code", "cc", "2026-05-01T10:00:00Z");
+  const f = computeForensics({ sessions: [clean, orphans], files: [] });
+  const uuidCheck = f.checks.find((c) => c.id === "uuid_chain");
+  assert.equal(uuidCheck.status, "pass", uuidCheck.detail);
+});
+
+test("forensics: pi sessions are excluded too (FULL_CAPTURE_SOURCES untouched by pi wiring)", () => {
+  // Same forgery-shaped fixture as the opencode/codex cases above, tagged pi
+  // instead: an orphaned chain would flag uuid_chain if pi were scanned.
+  // Scoped out, the check stays clean — proving landing pi didn't widen
+  // FULL_CAPTURE_SOURCES to include it.
+  const orphans = {
+    ...sess("pi", "pi", "2026-05-01T10:00:00Z"),
+    chain: Array.from({ length: 10 }, (_, i) => ({ uuid: `pi-${i}`, parentUuid: `missing-${i}`, ts: "2026-05-01T10:00:00Z" })),
   };
   const clean = sess("claude-code", "cc", "2026-05-01T10:00:00Z");
   const f = computeForensics({ sessions: [clean, orphans], files: [] });

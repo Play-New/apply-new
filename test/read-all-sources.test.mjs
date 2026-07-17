@@ -30,6 +30,27 @@ function makeCodexSessions() {
   return root;
 }
 
+// Build a minimal pi sessions tree on disk: one project dir containing one
+// session file (= one session) with a session header + one user + one
+// assistant message, mirroring test/pi-adapter.test.mjs's helper but trimmed
+// to the minimum readAllSources needs to prove a session merged in. Returned
+// root is the "sessions" dir itself, matching what defaultPiRoot() resolves to.
+function makePiSessions() {
+  const root = join(mkdtempSync(join(tmpdir(), "pi-")), "sessions");
+  const dir = join(root, "--Users-dee-proj--");
+  mkdirSync(dir, { recursive: true });
+  const lines = [
+    { type: "session", id: "pi-one", timestamp: "2026-01-02T03:04:05.000Z", version: 3, cwd: "/Users/dee/proj" },
+    { type: "message", id: "m1", parentId: null, timestamp: "2026-01-02T03:04:06.000Z", message: { role: "user", content: [{ type: "text", text: "hello" }], timestamp: "2026-01-02T03:04:06.000Z" } },
+    { type: "message", id: "m2", parentId: "m1", timestamp: "2026-01-02T03:04:07.000Z", message: { role: "assistant", content: [{ type: "text", text: "hi there" }], timestamp: "2026-01-02T03:04:07.000Z" } },
+  ];
+  writeFileSync(
+    join(dir, "2026-01-02T03-04-05-000Z_11111111-1111-1111-1111-111111111111.jsonl"),
+    lines.map((l) => JSON.stringify(l)).join("\n") + "\n",
+  );
+  return root;
+}
+
 // Build a minimal opencode JSON storage tree on disk.
 function makeOpencodeStorage() {
   const root = join(mkdtempSync(join(tmpdir(), "oc-")), "storage");
@@ -61,7 +82,7 @@ test("--no-opencode produces a claude-code-only bundle (privacy escape hatch)", 
       claudeRoot,
       // codex explicitly disabled so this doesn't pick up whatever real
       // codex data happens to exist on the machine running the suite.
-      sources: { opencode: { root: ocRoot, disabled: true, json: false }, codex: { disabled: true } },
+      sources: { opencode: { root: ocRoot, disabled: true, json: false }, codex: { disabled: true }, pi: { disabled: true } },
     });
     // The opencode storage tree on disk has 1 session; with --no-opencode it
     // must NOT appear in the bundle.
@@ -78,7 +99,7 @@ test("without --no-opencode, opencode sessions are included in the bundle", () =
   try {
     const parsed = readAllSources({
       claudeRoot,
-      sources: { opencode: { root: ocRoot, disabled: false, json: false }, codex: { disabled: true } },
+      sources: { opencode: { root: ocRoot, disabled: false, json: false }, codex: { disabled: true }, pi: { disabled: true } },
     });
     assert.equal(parsed.sessions.length, 1, `expected 1 session, got ${parsed.sessions.length}`);
     assert.equal(parsed.sessions[0].sessionId, "ses_one");
@@ -97,7 +118,7 @@ test("--no-opencode=true takes precedence over a present opencode root", () => {
   try {
     const parsed = readAllSources({
       claudeRoot,
-      sources: { opencode: { root: ocRoot, disabled: true, json: false }, codex: { disabled: true } },
+      sources: { opencode: { root: ocRoot, disabled: true, json: false }, codex: { disabled: true }, pi: { disabled: true } },
     });
     for (const s of parsed.sessions) {
       assert.notEqual(s.source, "opencode", `opencode session leaked despite noOpencode=true: ${s.sessionId}`);
@@ -128,7 +149,7 @@ test("sources.opencode.root: null falls back to defaultOpencodeRoot() (not silen
     const parsed = readAllSources({
       claudeRoot,
       // root: null <-- this is what the bin actually passes when --opencode-root is absent
-      sources: { opencode: { root: null, disabled: false, json: false }, codex: { disabled: true } },
+      sources: { opencode: { root: null, disabled: false, json: false }, codex: { disabled: true }, pi: { disabled: true } },
     });
     assert.equal(parsed.sessions.length, 1, `expected root:null to fall back to defaultOpencodeRoot() and find the on-disk storage; got ${parsed.sessions.length} sessions`);
     assert.equal(parsed.sessions[0].source, "opencode");
@@ -148,7 +169,7 @@ test("without --no-codex, codex sessions are included in the bundle", () => {
       claudeRoot,
       // opencode explicitly disabled so this doesn't pick up whatever real
       // opencode data happens to exist on the machine running the suite.
-      sources: { opencode: { disabled: true }, codex: { root: cxRoot, disabled: false } },
+      sources: { opencode: { disabled: true }, codex: { root: cxRoot, disabled: false }, pi: { disabled: true } },
     });
     assert.equal(parsed.sessions.length, 1, `expected 1 session, got ${parsed.sessions.length}`);
     assert.equal(parsed.sessions[0].sessionId, "cx-one");
@@ -165,7 +186,7 @@ test("--no-codex produces a claude-code-only bundle (privacy escape hatch)", () 
   try {
     const parsed = readAllSources({
       claudeRoot,
-      sources: { opencode: { disabled: true }, codex: { root: cxRoot, disabled: true } },
+      sources: { opencode: { disabled: true }, codex: { root: cxRoot, disabled: true }, pi: { disabled: true } },
     });
     // The codex sessions tree on disk has 1 session; with --no-codex it must
     // NOT appear in the bundle.
@@ -186,10 +207,10 @@ test("absent codex source key or an empty codex root leaves the claude-code-only
   const prevHome = process.env.CODEX_HOME;
   process.env.CODEX_HOME = mkdtempSync(join(tmpdir(), "cx-home-"));
   try {
-    const noCodexKey = readAllSources({ claudeRoot, sources: { opencode: { disabled: true } } }); // no sources.codex at all
+    const noCodexKey = readAllSources({ claudeRoot, sources: { opencode: { disabled: true }, pi: { disabled: true } } }); // no sources.codex at all
     const withEmptyRoot = readAllSources({
       claudeRoot,
-      sources: { opencode: { disabled: true }, codex: { root: emptyCodexRoot, disabled: false } },
+      sources: { opencode: { disabled: true }, codex: { root: emptyCodexRoot, disabled: false }, pi: { disabled: true } },
     });
     assert.equal(noCodexKey.source, "claude-code");
     assert.equal(noCodexKey.sessions.length, 0);
@@ -200,5 +221,77 @@ test("absent codex source key or an empty codex root leaves the claude-code-only
     rmSync(process.env.CODEX_HOME, { recursive: true, force: true });
     if (prevHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = prevHome;
+  }
+});
+
+test("without --no-pi, pi sessions are included in the bundle", () => {
+  const piRoot = makePiSessions();
+  const claudeRoot = emptyClaudeRoot();
+  try {
+    const parsed = readAllSources({
+      claudeRoot,
+      // opencode and codex explicitly disabled so this doesn't pick up
+      // whatever real opencode/codex data happens to exist on the machine.
+      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { root: piRoot, disabled: false } },
+    });
+    assert.equal(parsed.sessions.length, 1, `expected 1 session, got ${parsed.sessions.length}`);
+    assert.equal(parsed.sessions[0].sessionId, "pi-one");
+    assert.equal(parsed.sessions[0].source, "pi");
+  } finally {
+    rmSync(join(piRoot, ".."), { recursive: true, force: true });
+    rmSync(claudeRoot, { recursive: true, force: true });
+  }
+});
+
+test("--no-pi produces a claude-code-only bundle (privacy escape hatch)", () => {
+  const piRoot = makePiSessions();
+  const claudeRoot = emptyClaudeRoot();
+  try {
+    const parsed = readAllSources({
+      claudeRoot,
+      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { root: piRoot, disabled: true } },
+    });
+    // The pi sessions tree on disk has 1 session; with --no-pi it must NOT
+    // appear in the bundle.
+    assert.equal(parsed.sessions.length, 0, `expected 0 sessions, got ${parsed.sessions.length}: ${JSON.stringify(parsed.sessions.map(s => s.sessionId))}`);
+  } finally {
+    rmSync(join(piRoot, ".."), { recursive: true, force: true });
+    rmSync(claudeRoot, { recursive: true, force: true });
+  }
+});
+
+test("absent pi source key or an empty pi root leaves the claude-code-only bundle unchanged", () => {
+  // pi documents no env-var override for its sessions root (unlike codex's
+  // CODEX_HOME or opencode's XDG chain) — defaultPiRoot() is hardcoded to
+  // homedir()/.pi/agent/sessions. To exercise the "absent key" branch (which
+  // falls through to defaultPiRoot()) without touching THIS machine's real
+  // ~/.pi (64 real sessions live there), HOME and USERPROFILE are both pinned
+  // to an empty fixture dir for the duration of this test — os.homedir()
+  // honors $HOME on POSIX but reads %USERPROFILE% on Windows, so both must
+  // be pinned to stay hermetic on every CI leg and on contributors' machines.
+  const claudeRoot = emptyClaudeRoot();
+  const emptyPiRoot = mkdtempSync(join(tmpdir(), "pi-empty-"));
+  const fakeHome = mkdtempSync(join(tmpdir(), "pi-home-"));
+  const prevHome = process.env.HOME;
+  const prevUserProfile = process.env.USERPROFILE;
+  process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
+  try {
+    const noPiKey = readAllSources({ claudeRoot, sources: { opencode: { disabled: true }, codex: { disabled: true } } }); // no sources.pi at all
+    const withEmptyRoot = readAllSources({
+      claudeRoot,
+      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { root: emptyPiRoot, disabled: false } },
+    });
+    assert.equal(noPiKey.source, "claude-code");
+    assert.equal(noPiKey.sessions.length, 0);
+    assert.deepEqual(withEmptyRoot, noPiKey, "an empty/absent pi source must leave the claude-code-only bundle unchanged");
+  } finally {
+    rmSync(claudeRoot, { recursive: true, force: true });
+    rmSync(emptyPiRoot, { recursive: true, force: true });
+    rmSync(fakeHome, { recursive: true, force: true });
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (prevUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = prevUserProfile;
   }
 });

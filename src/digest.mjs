@@ -228,14 +228,14 @@ const DESIGN_RE = /design|ui\b|typograph|layout|figma|css|color|grid|font|spacin
 // HEADLESS mode of each launcher is, uniformly: `claude -p`/`--print` (not
 // bare `claude`, the REPL), `codex exec` (not `codex login`/`mcp`/`resume`),
 // `aider -m`/`--msg`/`--message[-file]` (not bare `aider` or `aider --yes`),
-// `cursor-agent -p`/`--print` (not `cursor-agent login`), and
-// `opencode|crush|goose run`. LAUNCHER_FLAGS lets ordinary flags (with
-// optional values, quoted or bare) sit between the executable and the
-// headless marker, so `claude --model opus -p "x"` still counts. aider alone
-// also skips POSITIONAL tokens (`aider app.py -m "fix"` is its canonical
-// form, and aider has no subcommands to misread); the others stay flags-only
-// so a subcommand's flag never reads as the top-level headless marker
-// (`claude mcp add -p x` is not a dispatch).
+// `cursor-agent -p`/`--print` (not `cursor-agent login`), `pi -p`/`--print`
+// (not bare `pi`, the REPL), and `opencode|crush|goose run`. LAUNCHER_FLAGS
+// lets ordinary flags (with optional values, quoted or bare) sit between the
+// executable and the headless marker, so `claude --model opus -p "x"` still
+// counts. aider alone also skips POSITIONAL tokens (`aider app.py -m "fix"`
+// is its canonical form, and aider has no subcommands to misread); the
+// others stay flags-only so a subcommand's flag never reads as the top-level
+// headless marker (`claude mcp add -p x` is not a dispatch).
 //
 // Every alternative in these fragments is first-char-disjoint on purpose:
 // `--?\w` (not `--?[\w-]+`, which parses `--flag` two ways) and a bare value
@@ -252,6 +252,7 @@ const AGENT_LAUNCHER_RE = new RegExp(
       `codex\\s+${LAUNCHER_FLAGS}exec`,
       `aider\\s+${LAUNCHER_TOKENS}(?:-m|--msg|--message(?:-file)?)`,
       `cursor-agent\\s+${LAUNCHER_FLAGS}(?:-p|--print)`,
+      `pi\\s+${LAUNCHER_FLAGS}(?:-p|--print)`,
     ].join("|") +
     ")(?=\\s|$)",
 );

@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { readClaudeCode } from "../src/adapters/claude-code.mjs";
 import { readCodex } from "../src/adapters/codex.mjs";
+import { readPi } from "../src/adapters/pi.mjs";
 import { buildDigest } from "../src/digest.mjs";
 import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
 
@@ -109,6 +110,39 @@ function parseCodexFixture() {
 
 test("codex adapter normalises Windows cwd to POSIX (cwdRedacted, projectLabel)", () => {
   const parsed = parseCodexFixture();
+  const s = parsed.sessions[0];
+  assert.ok(!s.cwdRedacted.includes("\\"), `cwdRedacted still has backslashes: ${s.cwdRedacted}`);
+  assert.ok(s.cwdRedacted.includes("⟨user⟩"), "username should still be redacted");
+  assert.match(s.projectLabel, /^project-[0-9a-f]{8}$/, `projectLabel not well-formed: ${s.projectLabel}`);
+});
+
+// ── pi: same Windows-path contract, driven through the pi adapter instead of
+// claude-code.mjs/codex.mjs. pi's cwd comes from a single "session" header
+// record (mirrors test/pi-adapter.test.mjs's fixture shape).
+const PI_CWD = "C:\\Users\\x\\proj";
+
+function parsePiFixture() {
+  const root = mkdtempSync(join(tmpdir(), "apply-new-win-pi-"));
+  try {
+    const dir = join(root, "sessions", "--decoy--"); // dir-name encoding irrelevant: header cwd wins
+    mkdirSync(dir, { recursive: true });
+    const lines = [
+      { type: "session", id: "sess-win-pi", timestamp: "2026-01-02T03:04:05.000Z", version: 3, cwd: PI_CWD },
+      { type: "message", id: "m1", parentId: null, timestamp: "2026-01-02T03:04:06.000Z", message: { role: "user", content: [{ type: "text", text: "build the agent route" }], timestamp: "2026-01-02T03:04:06.000Z" } },
+      { type: "message", id: "m2", parentId: "m1", timestamp: "2026-01-02T03:04:07.000Z", message: { role: "assistant", content: [{ type: "text", text: "done" }], timestamp: "2026-01-02T03:04:07.000Z" } },
+    ];
+    writeFileSync(
+      join(dir, "2026-01-02T03-04-05-000Z_11111111-2222-7333-8444-555555555555.jsonl"),
+      lines.map((l) => JSON.stringify(l)).join("\n") + "\n",
+    );
+    return readPi(join(root, "sessions"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("pi adapter normalises Windows cwd to POSIX (cwdRedacted, projectLabel)", () => {
+  const parsed = parsePiFixture();
   const s = parsed.sessions[0];
   assert.ok(!s.cwdRedacted.includes("\\"), `cwdRedacted still has backslashes: ${s.cwdRedacted}`);
   assert.ok(s.cwdRedacted.includes("⟨user⟩"), "username should still be redacted");

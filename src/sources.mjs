@@ -6,15 +6,17 @@
 //   - claude-code: ~/.claude/projects, always read
 //   - opencode:    ~/.local/share/opencode/{storage,opencode.db}, opt-out
 //   - codex:       ~/.codex/sessions, opt-out
+//   - pi:          ~/.pi/agent/sessions, opt-out
 //
 // Both opencode backends (sqlite and JSON) live in src/adapters/opencode.mjs;
 // this file just decides *whether* to read each source at all and *which*
-// backend, keyed by source name so future adapters (pi, ...) slot in as
-// another `sources.<name>` block below without touching the others.
+// backend, keyed by source name so future adapters slot in as another
+// `sources.<name>` block below without touching the others.
 
 import { readClaudeCode } from "./adapters/claude-code.mjs";
 import { readOpencode, readOpencodeJson, defaultOpencodeRoot, mergeSources } from "./adapters/opencode.mjs";
 import { readCodex, defaultCodexRoot } from "./adapters/codex.mjs";
+import { readPi, defaultPiRoot } from "./adapters/pi.mjs";
 
 export function readAllSources({ claudeRoot, sources }) {
   const bundles = [readClaudeCode(claudeRoot)];
@@ -33,6 +35,13 @@ export function readAllSources({ claudeRoot, sources }) {
   if (!cx.disabled) {
     const root = cx.root ?? defaultCodexRoot();
     const parsed = readCodex(root);
+    if (parsed.sessions.length) bundles.push(parsed);
+  }
+
+  const pi = sources?.pi ?? {};
+  if (!pi.disabled) {
+    const root = pi.root ?? defaultPiRoot();
+    const parsed = readPi(root);
     if (parsed.sessions.length) bundles.push(parsed);
   }
 
