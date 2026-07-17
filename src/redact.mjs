@@ -4,7 +4,12 @@
 // Named entities (people, companies, product names) have no reliable shape and
 // are left to the LLM pass — see profile.mjs. Structural fields used by the
 // forensics (timestamps, uuids, token usage) are NEVER passed through here;
-// only human-readable text is redacted.
+// only human-readable text is redacted. This structural layer also scrubs the
+// local account name, because logs quote it both in dash-encoded paths and in
+// plain prose.
+
+import os from "node:os";
+import { basename } from "node:path";
 
 const RULES = [
   // Secrets first, before anything else can partially mask them.
@@ -26,9 +31,45 @@ const RULES = [
   // Home-directory usernames, unix + windows. Keep the path shape, drop the user.
   { re: /\/(Users|home)\/([^/\s"':]+)/g, to: "/$1/⟨user⟩" },
   { re: /([A-Za-z]:\\Users\\)([^\\/\s"':]+)/g, to: "$1⟨user⟩" },
+  // Dash-encoded home paths (Claude Code encodes project/scratchpad dirs this
+  // way, e.g. /private/tmp/claude-501/-Users-<name>-Projects-...). The leading
+  // dash is the encoded-path marker; a rare false positive like "my-home-made"
+  // becoming "my-home-⟨user⟩" is accepted over-redaction.
+  { re: /-(Users|home)-([^-\s"':]+)/g, to: "-$1-⟨user⟩" },
   // IPv4 (4 octets — won't catch semver's 3).
   { re: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, to: "⟨ip⟩" },
 ];
+
+// Bare mentions of the local account name have no structural shape, but the
+// machine knows its own username — so we build literal rules for it at module
+// init. Names under 4 chars are skipped: short/common names (e.g. "al", "cj")
+// are too likely to clobber ordinary words, so over-redaction risk outweighs
+// the privacy gain. These rules are appended AFTER the path rules above, so
+// the path rules get first crack and keep their shaped ⟨user⟩ output.
+function localAccountNames() {
+  const names = new Set();
+  try {
+    const u = os.userInfo().username;
+    if (u) names.add(u);
+  } catch {
+    // no-op: redaction must never throw at import.
+  }
+  try {
+    const h = basename(os.homedir());
+    if (h) names.add(h);
+  } catch {
+    // no-op: redaction must never throw at import.
+  }
+  return [...names].filter((n) => n.length >= 4);
+}
+
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+for (const name of localAccountNames()) {
+  RULES.push({ re: new RegExp(escapeRegExp(name), "gi"), to: "⟨user⟩" });
+}
 
 /** Redact a single string. Returns the redacted string. */
 export function redactText(input) {
@@ -41,10 +82,16 @@ export function redactText(input) {
 /** Count how many redactions a string would trigger (for the redaction-rate signal). */
 export function countRedactions(input) {
   if (typeof input !== "string" || input.length === 0) return 0;
+  // Count progressively, mirroring redactText: rules can overlap (e.g. the
+  // literal account-name rule vs. the path rules), so counting each rule
+  // against the original input would double-count what redactText only
+  // substitutes once.
+  let out = input;
   let n = 0;
-  for (const { re } of RULES) {
-    const m = input.match(re);
+  for (const { re, to } of RULES) {
+    const m = out.match(re);
     if (m) n += m.length;
+    out = out.replace(re, to);
   }
   return n;
 }
