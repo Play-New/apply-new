@@ -82,10 +82,16 @@ export function redactText(input) {
 /** Count how many redactions a string would trigger (for the redaction-rate signal). */
 export function countRedactions(input) {
   if (typeof input !== "string" || input.length === 0) return 0;
+  // Count progressively, mirroring redactText: rules can overlap (e.g. the
+  // literal account-name rule vs. the path rules), so counting each rule
+  // against the original input would double-count what redactText only
+  // substitutes once.
+  let out = input;
   let n = 0;
-  for (const { re } of RULES) {
-    const m = input.match(re);
+  for (const { re, to } of RULES) {
+    const m = out.match(re);
     if (m) n += m.length;
+    out = out.replace(re, to);
   }
   return n;
 }

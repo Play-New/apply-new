@@ -78,3 +78,16 @@ test("redacts a bare mention of the local account name in prose (or documents th
     assert.equal(redactText(s), s);
   }
 });
+
+test("countRedactions does not double-count a username inside a path against the literal account-name rule", () => {
+  const u = os.userInfo().username;
+  if (u.length >= 4) {
+    // The path rule fires and consumes the username before the literal
+    // account-name rule ever sees it, so the count is 1, not 2.
+    assert.equal(countRedactions("/Users/" + u + "/x"), 1);
+  } else {
+    // Short-name guard: no literal rule exists, so only the path rule fires.
+    assert.equal(countRedactions("/Users/" + u + "/x"), 1);
+  }
+  assert.equal(countRedactions("-Users-leakuser-Projects-x"), 1);
+});
