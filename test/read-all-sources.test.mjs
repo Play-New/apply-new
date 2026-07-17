@@ -265,14 +265,17 @@ test("absent pi source key or an empty pi root leaves the claude-code-only bundl
   // CODEX_HOME or opencode's XDG chain) — defaultPiRoot() is hardcoded to
   // homedir()/.pi/agent/sessions. To exercise the "absent key" branch (which
   // falls through to defaultPiRoot()) without touching THIS machine's real
-  // ~/.pi (64 real sessions live there), HOME is pinned to an empty fixture
-  // dir for the duration of this test — the one lever pi's default-root
-  // resolution actually reads (os.homedir() honors $HOME on POSIX).
+  // ~/.pi (64 real sessions live there), HOME and USERPROFILE are both pinned
+  // to an empty fixture dir for the duration of this test — os.homedir()
+  // honors $HOME on POSIX but reads %USERPROFILE% on Windows, so both must
+  // be pinned to stay hermetic on every CI leg and on contributors' machines.
   const claudeRoot = emptyClaudeRoot();
   const emptyPiRoot = mkdtempSync(join(tmpdir(), "pi-empty-"));
   const fakeHome = mkdtempSync(join(tmpdir(), "pi-home-"));
   const prevHome = process.env.HOME;
+  const prevUserProfile = process.env.USERPROFILE;
   process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
   try {
     const noPiKey = readAllSources({ claudeRoot, sources: { opencode: { disabled: true }, codex: { disabled: true } } }); // no sources.pi at all
     const withEmptyRoot = readAllSources({
@@ -288,5 +291,7 @@ test("absent pi source key or an empty pi root leaves the claude-code-only bundl
     rmSync(fakeHome, { recursive: true, force: true });
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
+    if (prevUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = prevUserProfile;
   }
 });
