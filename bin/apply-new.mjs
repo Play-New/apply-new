@@ -88,6 +88,7 @@ const tryGit = (k) => { try { return execSync(`git config ${k}`, { encoding: "ut
 function sourceFlags() {
   return {
     opencode: { root: flag("opencode-root"), disabled: has("no-opencode"), json: has("opencode-json") },
+    codex: { root: flag("codex-root"), disabled: has("no-codex") },
   };
 }
 
