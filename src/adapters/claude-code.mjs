@@ -23,7 +23,9 @@ const toPosix = (s) => (typeof s === "string" ? s.replace(/\\/g, "/") : s);
 // path canonicalisation instead of re-implementing it.
 export { toPosix };
 
-function* walk(dir) {
+// Exported so other adapters (e.g. codex, pi) can reuse the same recursive
+// .jsonl walk instead of re-implementing it.
+export function* walk(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) yield* walk(full);

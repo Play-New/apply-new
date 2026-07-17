@@ -39,9 +39,7 @@ test("--no-opencode produces a claude-code-only bundle (privacy escape hatch)", 
   try {
     const parsed = readAllSources({
       claudeRoot,
-      ocRoot,
-      noOpencode: true,
-      opencodeJson: false,
+      sources: { opencode: { root: ocRoot, disabled: true, json: false } },
     });
     // The opencode storage tree on disk has 1 session; with --no-opencode it
     // must NOT appear in the bundle.
@@ -58,9 +56,7 @@ test("without --no-opencode, opencode sessions are included in the bundle", () =
   try {
     const parsed = readAllSources({
       claudeRoot,
-      ocRoot,
-      noOpencode: false,
-      opencodeJson: false,
+      sources: { opencode: { root: ocRoot, disabled: false, json: false } },
     });
     assert.equal(parsed.sessions.length, 1, `expected 1 session, got ${parsed.sessions.length}`);
     assert.equal(parsed.sessions[0].sessionId, "ses_one");
@@ -79,9 +75,7 @@ test("--no-opencode=true takes precedence over a present opencode root", () => {
   try {
     const parsed = readAllSources({
       claudeRoot,
-      ocRoot,
-      noOpencode: true,
-      opencodeJson: false,
+      sources: { opencode: { root: ocRoot, disabled: true, json: false } },
     });
     for (const s of parsed.sessions) {
       assert.notEqual(s.source, "opencode", `opencode session leaked despite noOpencode=true: ${s.sessionId}`);
@@ -92,7 +86,7 @@ test("--no-opencode=true takes precedence over a present opencode root", () => {
   }
 });
 
-test("ocRoot: null falls back to defaultOpencodeRoot() (not silently null)", () => {
+test("sources.opencode.root: null falls back to defaultOpencodeRoot() (not silently null)", () => {
   // The bin passes `flag("opencode-root")` which returns null when the flag is
   // absent. Default-parameter syntax doesn't fire for null (only undefined),
   // so the helper must fall back explicitly via nullish coalescing. Without
@@ -111,11 +105,10 @@ test("ocRoot: null falls back to defaultOpencodeRoot() (not silently null)", () 
   try {
     const parsed = readAllSources({
       claudeRoot,
-      ocRoot: null, // <-- this is what the bin actually passes when the flag is absent
-      noOpencode: false,
-      opencodeJson: false,
+      // root: null <-- this is what the bin actually passes when --opencode-root is absent
+      sources: { opencode: { root: null, disabled: false, json: false } },
     });
-    assert.equal(parsed.sessions.length, 1, `expected ocRoot:null to fall back to defaultOpencodeRoot() and find the on-disk storage; got ${parsed.sessions.length} sessions`);
+    assert.equal(parsed.sessions.length, 1, `expected root:null to fall back to defaultOpencodeRoot() and find the on-disk storage; got ${parsed.sessions.length} sessions`);
     assert.equal(parsed.sessions[0].source, "opencode");
   } finally {
     rmSync(ocParent, { recursive: true, force: true });
