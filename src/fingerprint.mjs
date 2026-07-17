@@ -42,7 +42,11 @@ export function computeFingerprint(parsed, { tz = DEFAULT_TZ } = {}) {
 
     let lastUserTs = null;
     for (const m of s.messages) {
-      messages++;
+      // Only user/assistant rows are conversation turns: pi emits toolResult
+      // rows as their own message rows (unlike claude-code/opencode/codex,
+      // which fold them into the assistant message), which would otherwise
+      // inflate this counter and make it non-comparable across sources.
+      if (m.role === "user" || m.role === "assistant") messages++;
       if (ms(m.ts)) allTs.push(ms(m.ts));
       if (m.role === "user") {
         user++;

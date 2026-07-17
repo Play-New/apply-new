@@ -24,6 +24,7 @@ import { mergeSources } from "../src/adapters/opencode.mjs";
 import { buildDigest } from "../src/digest.mjs";
 import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
 import { computeIntensity } from "../src/intensity.mjs";
+import { computeFingerprint } from "../src/fingerprint.mjs";
 
 function makePiRoot() {
   return mkdtempSync(join(tmpdir(), "pi-sessions-"));
@@ -390,5 +391,32 @@ test("smoke: bundle flows through buildDigest + computeAgenticLiteracy + compute
     const intensity = computeIntensity(parsed);
     assert.ok(intensity !== null);
     assert.ok(intensity.activeDays >= 1, "session should be counted as an active day, not silently dropped");
+  });
+});
+
+// ── 13. fingerprint totals.messages must not count pi's toolResult rows ──
+
+test("fingerprint: totals.messages counts only user/assistant rows, not pi's toolResult rows", () => {
+  withRoot((root) => {
+    writeSession(root, {
+      lines: [
+        sessionHeader("sess-fp", "/Users/nora/proj", T(0)),
+        userMsg("u1", null, "run the tests", T(1)),
+        assistantMsg("a1", "u1", T(2), {
+          content: [{ type: "toolCall", id: "call1", name: "bash", arguments: { command: "pytest" } }],
+        }),
+        toolResultMsg("tr1", "a1", "call1", "bash", "all green", false, T(3)),
+        userMsg("u2", "tr1", "thanks", T(4)),
+        assistantMsg("a2", "u2", T(5), { content: [{ type: "text", text: "you're welcome" }] }),
+      ],
+    });
+    const parsed = mergeSources(readPi(join(root, "sessions")));
+    const s = parsed.sessions[0];
+    const toolResultRows = s.messages.filter((m) => m.role === "toolResult").length;
+    assert.equal(toolResultRows, 1, "fixture must actually contain a toolResult row for this assertion to be meaningful");
+    const fp = computeFingerprint(parsed);
+    const conversationTurns = s.messages.filter((m) => m.role === "user" || m.role === "assistant").length;
+    assert.equal(conversationTurns, 4, "2 user + 2 assistant rows");
+    assert.equal(fp.totals.messages, conversationTurns, "totals.messages must count only user/assistant rows, excluding the toolResult row");
   });
 });
