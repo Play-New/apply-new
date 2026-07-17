@@ -83,7 +83,7 @@ const tryGit = (k) => { try { return execSync(`git config ${k}`, { encoding: "ut
 // The `sources` shape readAllSources() expects, read from CLI flags. Called
 // from TWO places (loadProfileInputs and the submit command) that must never
 // drift: submit re-derives ground truth from the SAME source mix the profile
-// was generated from, otherwise a merged profile (claude-code + opencode)
+// was generated from, otherwise a merged profile (claude-code + opencode + codex)
 // trips the tamper signal because volume.sessions > re-derived sessions.
 function sourceFlags() {
   return {

@@ -28,7 +28,7 @@ function makeCodexRoot() {
 // Write one rollout file (= one session) under sessions/YYYY/MM/DD/, mirroring
 // codex's real on-disk layout. `lines` is an array of record objects (JSON
 // stringified) OR raw strings (to inject malformed JSON verbatim).
-function writeRollout(root, { date = "2026/01/15", uuid = "019aa72f-56e3-7950-831c-dc213d34e7b1", lines }) {
+function writeRollout(root, { date = "2026/01/15", uuid = "11111111-2222-7333-8444-555555555555", lines }) {
   const dir = join(root, date);
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `rollout-2026-01-15T10-00-00-${uuid}.jsonl`);

@@ -98,7 +98,7 @@ function parseCodexFixture() {
       { timestamp: "2026-01-02T03:04:07.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "done" }] } },
     ];
     writeFileSync(
-      join(dir, "rollout-2026-01-02T03-04-05-019aa72f-56e3-7950-831c-dc213d34e7b1.jsonl"),
+      join(dir, "rollout-2026-01-02T03-04-05-11111111-2222-7333-8444-555555555555.jsonl"),
       lines.map((l) => JSON.stringify(l)).join("\n") + "\n",
     );
     return readCodex(root);
