@@ -83,12 +83,13 @@ const tryGit = (k) => { try { return execSync(`git config ${k}`, { encoding: "ut
 // The `sources` shape readAllSources() expects, read from CLI flags. Called
 // from TWO places (loadProfileInputs and the submit command) that must never
 // drift: submit re-derives ground truth from the SAME source mix the profile
-// was generated from, otherwise a merged profile (claude-code + opencode + codex)
+// was generated from, otherwise a merged profile (claude-code + opencode + codex + pi)
 // trips the tamper signal because volume.sessions > re-derived sessions.
 function sourceFlags() {
   return {
     opencode: { root: flag("opencode-root"), disabled: has("no-opencode"), json: has("opencode-json") },
     codex: { root: flag("codex-root"), disabled: has("no-codex") },
+    pi: { root: flag("pi-root"), disabled: has("no-pi") },
   };
 }
 
@@ -132,6 +133,8 @@ async function loadProfileInputs(out) {
   }
   const cx = parsed.sessions.filter(s => s.source === "codex");
   if (cx.length) console.log(`      codex:       ${cx.length} sessions`);
+  const pi = parsed.sessions.filter(s => s.source === "pi");
+  if (pi.length) console.log(`      pi:          ${pi.length} sessions`);
 
   // Timezone the day-based counts (activeDays, streak) are bucketed in. Default
   // UTC (machine-independent); recorded in the profile so the count reproduces.
