@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { summarizeSources, assembleProfile, renderMarkdown } from "../src/profile.mjs";
 import { assessStructure } from "../src/consistency.mjs";
 import { computeForensics } from "../src/forensics.mjs";
+import { sess as factorySess } from "./factories.mjs";
 
 const sess = (source, sid, from, to) => ({
   sessionId: sid,
@@ -42,6 +43,23 @@ test("summarizeSources: one entry per source, with capture level and month windo
 test("summarizeSources: unknown sources default to structural capture", () => {
   const s = summarizeSources({ sessions: [sess("opencode", "a", "2026-05-01T10:00:00Z")] });
   assert.equal(s[0].captureLevel, "structural");
+});
+
+test("summarizeSources: a codex session reports structural capture in its own group", () => {
+  const parsed = {
+    sessions: [
+      sess("claude-code", "a", "2026-04-03T10:00:00Z", "2026-04-03T11:00:00Z"),
+      factorySess("codex", "app"),
+    ],
+  };
+  const s = summarizeSources(parsed);
+  assert.equal(s.length, 2, `expected claude-code and codex as separate groups, got ${JSON.stringify(s)}`);
+  const codexEntry = s.find((e) => e.source === "codex");
+  assert.ok(codexEntry, "codex must have its own group in the sources block");
+  assert.equal(codexEntry.captureLevel, "structural");
+  assert.equal(codexEntry.sessions, 1);
+  const claudeEntry = s.find((e) => e.source === "claude-code");
+  assert.equal(claudeEntry.captureLevel, "full", "claude-code must stay full capture, not get pulled down by codex");
 });
 
 const assembleArgs = (extra = {}) => ({
@@ -102,6 +120,21 @@ test("forensics: structural-source sessions are excluded, never passed vacuously
   const orphans = {
     ...sess("opencode", "oc", "2026-05-01T10:00:00Z"),
     chain: Array.from({ length: 10 }, (_, i) => ({ uuid: `oc-${i}`, parentUuid: `missing-${i}`, ts: "2026-05-01T10:00:00Z" })),
+  };
+  const clean = sess("claude-code", "cc", "2026-05-01T10:00:00Z");
+  const f = computeForensics({ sessions: [clean, orphans], files: [] });
+  const uuidCheck = f.checks.find((c) => c.id === "uuid_chain");
+  assert.equal(uuidCheck.status, "pass", uuidCheck.detail);
+});
+
+test("forensics: codex sessions are excluded too (FULL_CAPTURE_SOURCES untouched by #15)", () => {
+  // Same forgery-shaped fixture as the opencode case above, tagged codex
+  // instead: an orphaned chain would flag uuid_chain if codex were scanned.
+  // Scoped out, the check stays clean — proving landing codex didn't widen
+  // FULL_CAPTURE_SOURCES to include it.
+  const orphans = {
+    ...sess("codex", "cx", "2026-05-01T10:00:00Z"),
+    chain: Array.from({ length: 10 }, (_, i) => ({ uuid: `cx-${i}`, parentUuid: `missing-${i}`, ts: "2026-05-01T10:00:00Z" })),
   };
   const clean = sess("claude-code", "cc", "2026-05-01T10:00:00Z");
   const f = computeForensics({ sessions: [clean, orphans], files: [] });

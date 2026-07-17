@@ -34,6 +34,7 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { redactText, countRedactions } from "../redact.mjs";
 import { toPosix } from "./claude-code.mjs";
+import { fallbackToolName } from "./tool-vocab.mjs";
 
 const require = createRequire(import.meta.url);
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
@@ -74,11 +75,9 @@ const TOOL_MAP = {
 function mapTool(name) {
   if (!name) return name;
   if (TOOL_MAP[name]) return TOOL_MAP[name];
-  // Anything else with a "server_tool" shape is an MCP tool; rewrite to the
-  // canonical mcp__server__tool so agentic-literacy's MCP detection lights up.
-  const us = name.indexOf("_");
-  if (us > 0) return `mcp__${name.slice(0, us)}__${name.slice(us + 1)}`;
-  return name;
+  // Anything else falls through to the fallback shared with every other
+  // adapter (see tool-vocab.mjs for why it's shared, not reimplemented here).
+  return fallbackToolName(name);
 }
 
 // Reduce a message's parts into the shared content shape.
