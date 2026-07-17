@@ -151,6 +151,40 @@ test("framework-injected turns never surface: <environment_context>/<permissions
   });
 });
 
+test("framework filtering is per content block: a user message mixing a framework block with a real block keeps only the real block", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      lines: [
+        rec("session_meta", { id: "sess-fw-mixed", cwd: "/Users/bob/app", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/bob/app", model: "gpt-5.5" }, T(1)),
+        rec(
+          "response_item",
+          {
+            type: "message",
+            role: "user",
+            content: [
+              { type: "input_text", text: "<environment_context>\n  MARKER_MIXED_ENV_TEXT\n</environment_context>" },
+              { type: "input_text", text: "MARKER_MIXED_REAL_TEXT actual human question" },
+            ],
+          },
+          T(2),
+        ),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "answering the mixed message" }] }, T(3)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, `expected the mixed message to survive as one user turn, got ${JSON.stringify(s.messages.map((m) => m.role))}`);
+    assert.equal(s.messages[0].role, "user");
+    assert.ok(s.messages[0].textRedacted.includes("MARKER_MIXED_REAL_TEXT"), "the real block must survive");
+    assert.ok(!s.messages[0].textRedacted.includes("MARKER_MIXED_ENV_TEXT"), "the framework-wrapped block must be dropped, not the whole message");
+
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("MARKER_MIXED_ENV_TEXT"), "framework-wrapped block text leaked anywhere in the bundle");
+  });
+});
+
 test("shell array command is joined with spaces; secret-looking tokens in cmd are redacted", () => {
   withRoot((root) => {
     writeRollout(root, {
@@ -243,6 +277,32 @@ test("apply_patch with zero parseable file headers falls back to a single pathle
   });
 });
 
+test("custom_tool_call_output: status drives isError (failed -> true, completed -> false)", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      lines: [
+        rec("session_meta", { id: "sess-custom-status", cwd: "/Users/erin/proj", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/erin/proj", model: "gpt-5.5" }, T(1)),
+        rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "run two custom tools" }] }, T(2)),
+        rec("response_item", { type: "custom_tool_call", call_id: "cfail", name: "some_custom_tool", input: "" }, T(3)),
+        rec("response_item", { type: "custom_tool_call_output", call_id: "cfail", status: "failed", output: "boom" }, T(4)),
+        rec("response_item", { type: "custom_tool_call", call_id: "cok", name: "some_custom_tool", input: "" }, T(5)),
+        rec("response_item", { type: "custom_tool_call_output", call_id: "cok", status: "completed", output: "great" }, T(6)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "done both" }] }, T(7)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    const results = parsed.sessions[0].messages.flatMap((m) => m.toolResults);
+    const rFail = results.find((r) => r.forId === "cfail");
+    const rOk = results.find((r) => r.forId === "cok");
+    assert.ok(rFail, "expected a toolResult for cfail");
+    assert.ok(rOk, "expected a toolResult for cok");
+    assert.equal(rFail.isError, true, "status: failed should be an error");
+    assert.equal(rOk.isError, false, "status: completed should not be an error");
+  });
+});
+
 test("tool mapping: exec_command/shell_command -> Bash, update_plan -> TodoWrite, request_user_input -> AskUserQuestion (q extracted), unknown falls back to mcp__server__tool", () => {
   withRoot((root) => {
     writeRollout(root, {
@@ -260,7 +320,9 @@ test("tool mapping: exec_command/shell_command -> Bash, update_plan -> TodoWrite
         rec("response_item", { type: "function_call_output", call_id: "c4", output: "ok" }, T(10)),
         rec("response_item", { type: "function_call", name: "myserver_mytool", arguments: JSON.stringify({}), call_id: "c5" }, T(11)),
         rec("response_item", { type: "function_call_output", call_id: "c5", output: "ok" }, T(12)),
-        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "all done" }] }, T(13)),
+        rec("event_msg", { type: "web_search_call", call_id: "c6", action: { type: "search", query: "how to redact secrets" } }, T(13)),
+        rec("event_msg", { type: "web_search_call", action: { type: "search", query: "no call id here" } }, T(14)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "all done" }] }, T(15)),
       ],
     });
 
@@ -275,6 +337,21 @@ test("tool mapping: exec_command/shell_command -> Bash, update_plan -> TodoWrite
     assert.equal(byId.c4.name, "AskUserQuestion");
     assert.equal(byId.c4.q, "Which approach?");
     assert.equal(byId.c5.name, "mcp__myserver__mytool", `got: ${byId.c5.name}`);
+
+    // web_search_call must be shaped like every other toolUse in this adapter
+    // ({id, name, path, cmd, q}), not the bare {name, q?} it used to be.
+    const search1 = byId.c6;
+    assert.ok(search1, "expected a toolUse keyed by the web_search_call's call_id");
+    assert.equal(search1.name, "WebSearch");
+    assert.equal(search1.q, "how to redact secrets");
+    assert.equal(search1.path, "");
+    assert.equal(search1.cmd, "");
+    assert.deepEqual(Object.keys(search1).sort(), ["cmd", "id", "name", "path", "q"]);
+
+    const search2 = toolUses.find((u) => u.name === "WebSearch" && u.q === "no call id here");
+    assert.ok(search2, "expected the second web_search_call toolUse");
+    assert.equal(search2.id, undefined, "absent call_id/id should leave id undefined, same convention as other toolUse builders");
+    assert.deepEqual(Object.keys(search2).sort(), ["cmd", "id", "name", "path", "q"]);
   });
 });
 

@@ -25,7 +25,7 @@ The slash command asks for four contact fields (name, email, city, status), read
 node bin/apply-new.mjs submit --yes
 ```
 
-> Today the tool reads Claude Code and Codex CLI logs (`~/.codex/sessions`; skip it with `--no-codex`). Gemini CLI and ChatGPT / Claude.ai exports are on the roadmap.
+> Today the tool reads Claude Code, opencode, and Codex CLI logs (`~/.codex/sessions`; skip it with `--no-codex`). Gemini CLI and ChatGPT / Claude.ai exports are on the roadmap.
 
 ## What we look at
 

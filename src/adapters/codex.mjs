@@ -20,10 +20,14 @@
 // become a turn boundary:
 //   - role "developer": framework-injected system turns (never authored by
 //     the human), dropped entirely — no text, no boundary, no count.
-//   - role "user" wrapped ENTIRELY in <environment_context> or
+//   - role "user" content BLOCKS wrapped ENTIRELY in <environment_context> or
 //     <permissions instructions> tags: Codex re-injects IDE/sandbox state as
-//     a synthetic "user" message on many turns; counting it as a real turn
-//     would inflate the turn count and pollute textRedacted with boilerplate.
+//     a synthetic block, sometimes alongside a real human block in the same
+//     message. Filtering is per block, not per message: a wrapped block never
+//     contributes text, and a message where every block is wrapped (or which
+//     has none left after filtering) is dropped entirely — counting it as a
+//     real turn would inflate the turn count and pollute textRedacted with
+//     boilerplate.
 //
 // apply_patch is Codex's diff-application tool and its `input` is the raw
 // unified-diff text — full file contents can ride along in an Add File hunk.
@@ -159,17 +163,40 @@ function extractMessageText(content) {
   return text;
 }
 
-// Framework-injected user turns: Codex re-sends IDE/sandbox state as a
-// synthetic "user" message wrapped entirely in one of these tags. Trimmed
-// text must both start with the open tag and end with its close tag —
-// otherwise a real user message that merely mentions the tag would be
-// dropped.
+// Framework-injected content: Codex re-sends IDE/sandbox state as a synthetic
+// block wrapped entirely in one of these tags (checked per content block —
+// see extractUserMessageText below — not per message). Trimmed text must
+// both start with the open tag and end with its close tag — otherwise a real
+// block that merely mentions the tag would be dropped.
 const FRAMEWORK_TAGS = [
   { open: "<environment_context>", close: "</environment_context>" },
   { open: "<permissions instructions>", close: "</permissions instructions>" },
 ];
 function isFrameworkWrapped(trimmed) {
   return FRAMEWORK_TAGS.some((t) => trimmed.startsWith(t.open) && trimmed.endsWith(t.close));
+}
+
+// role "user" content, filtered per block: Codex can mix a real human block
+// with a framework-injected <environment_context>/<permissions instructions>
+// block in the SAME message. Each block is judged on its own trimmed text;
+// a block that survives contributes to the message exactly like
+// extractMessageText does, one that's framework-wrapped is dropped without
+// contributing. Returns null when no block survives (all wrapped, or there
+// were none) so the caller can skip the message entirely — the pre-existing
+// behavior for pure boilerplate.
+function extractUserMessageText(content) {
+  if (!Array.isArray(content)) return null;
+  let text = "";
+  let survived = 0;
+  for (const b of content) {
+    if (!b || typeof b !== "object") continue;
+    if (b.type !== "input_text" && b.type !== "output_text") continue;
+    const blockText = b.text || "";
+    if (isFrameworkWrapped(blockText.trim())) continue;
+    survived++;
+    text += blockText + "\n";
+  }
+  return survived > 0 ? text : null;
 }
 
 // rollout-<iso-ts>-<uuid>.jsonl — pull the trailing uuid as a sessionId
@@ -330,14 +357,14 @@ export function readCodex(root) {
           case "message": {
             const role = payload.role;
             if (role === "developer") break; // framework-injected: drop entirely
-            const text = extractMessageText(payload.content);
             if (role === "user") {
-              if (isFrameworkWrapped(text.trim())) break; // synthetic env/permissions turn: skip entirely
+              const text = extractUserMessageText(payload.content);
+              if (text === null) break; // no surviving block: pure boilerplate, skip entirely
               flushTurn();
               emit("user", ts, text);
               openTurn();
             } else if (role === "assistant" && turn) {
-              turn.text += text;
+              turn.text += extractMessageText(payload.content);
               markTurnTs(ts);
             }
             break;
@@ -398,8 +425,8 @@ export function readCodex(root) {
           }
           case "web_search_call": {
             const query = payload.action && payload.action.query;
-            const toolUse = { name: "WebSearch" };
-            if (query) toolUse.q = redactText(String(query).slice(0, 200));
+            const q = query ? redactText(String(query).slice(0, 200)) : "";
+            const toolUse = { id: payload.call_id || payload.id, name: "WebSearch", path: "", cmd: "", q };
             if (turn) {
               turn.toolUses.push(toolUse);
               markTurnTs(ts);
