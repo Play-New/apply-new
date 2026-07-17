@@ -130,6 +130,8 @@ async function loadProfileInputs(out) {
     const backend = parsed.backends?.opencode;
     console.log(`      opencode${backend ? ` (${backend})` : ""}:    ${oc.length} sessions`);
   }
+  const cx = parsed.sessions.filter(s => s.source === "codex");
+  if (cx.length) console.log(`      codex:       ${cx.length} sessions`);
 
   // Timezone the day-based counts (activeDays, streak) are bucketed in. Default
   // UTC (machine-independent); recorded in the profile so the count reproduces.
