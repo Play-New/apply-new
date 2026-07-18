@@ -178,8 +178,8 @@ function extractUserMessageText(content) {
 }
 
 // toolResult.content is an array of {type:"text", text} blocks; bytes is the
-// sum of their .length — the claude-code/opencode convention (`.length`, not
-// codex's Buffer.byteLength outlier). The text itself is never stored.
+// sum of their .length — the shared `.length` (UTF-16 code units) convention
+// every adapter uses for toolResults[].bytes. The text itself is never stored.
 function toolResultBytes(content) {
   if (!Array.isArray(content)) return 0;
   return content.reduce((n, b) => n + (b && typeof b.text === "string" ? b.text.length : 0), 0);

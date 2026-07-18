@@ -44,6 +44,10 @@
 // tool output, and diff bodies are reduced to lengths/booleans/paths, never
 // kept — see redact.mjs and claude-code.mjs/opencode.mjs for the shared
 // contract this adapter has to honor.
+//
+// toolResults[].bytes here (as in every other adapter) is the UTF-16
+// code-unit length (`.length`) of the textual output, not an actual byte
+// count — comparable across adapters, the text itself never stored.
 
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, relative, basename } from "node:path";
@@ -127,12 +131,14 @@ function buildApplyPatchToolUses(payload) {
 // function_call_output → toolResult. Codex's exec harness prefixes real
 // output with "Exit code: N"; a non-zero code is the only error signal we
 // get (there's no separate boolean). Output text itself is never stored,
-// only its byte length.
+// only its length in UTF-16 code units (`.length`, not Buffer.byteLength) —
+// the same convention claude-code.mjs/opencode.mjs/pi.mjs use, so
+// toolResults[].bytes is comparable across adapters.
 function buildFunctionCallResult(payload) {
   const output = typeof payload.output === "string" ? payload.output : "";
   const m = /^Exit code: (\d+)/.exec(output);
   const isError = !!m && m[1] !== "0";
-  return { forId: payload.call_id, isError, bytes: Buffer.byteLength(output) };
+  return { forId: payload.call_id, isError, bytes: output.length };
 }
 
 // custom_tool_call_output → toolResult (apply_patch's own result record).
@@ -143,7 +149,7 @@ function buildCustomToolResult(payload) {
   const isError = Object.prototype.hasOwnProperty.call(payload, "status") ? payload.status !== "completed" : false;
   const output = payload.output;
   const outStr = typeof output === "string" ? output : JSON.stringify(output ?? "");
-  return { forId: payload.call_id, isError, bytes: Buffer.byteLength(outStr) };
+  return { forId: payload.call_id, isError, bytes: outStr.length };
 }
 
 // reasoning → {thinkingChars, signatureChars}. Like Claude's redacted

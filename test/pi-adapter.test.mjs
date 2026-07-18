@@ -20,6 +20,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { readPi } from "../src/adapters/pi.mjs";
+import { redactText } from "../src/redact.mjs";
 import { mergeSources } from "../src/adapters/opencode.mjs";
 import { buildDigest } from "../src/digest.mjs";
 import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
@@ -270,6 +271,31 @@ test("compaction: a long summary lands (redacted) in compactionSummaries; a sub-
   });
 });
 
+test("compaction threshold ordering: a summary whose PRE-redaction length clears the noise floor but whose POST-redaction length does not is NOT included (pins the post-redaction gate)", () => {
+  withRoot((root) => {
+    // Repeated emails collapse hard under redaction (~18 raw chars ->
+    // "⟨email⟩ " = 8 redacted chars per repeat), so a run long enough to
+    // clear the 200-char floor raw shrinks well under it once redacted.
+    const rawSummary = "user@example.com ".repeat(15);
+    const redactedPreview = redactText(rawSummary);
+    assert.ok(rawSummary.length > 200, `fixture must exceed the noise floor pre-redaction, got ${rawSummary.length}`);
+    assert.ok(redactedPreview.length < 200, `fixture must fall under the noise floor post-redaction, got ${redactedPreview.length}`);
+
+    writeSession(root, {
+      lines: [sessionHeader("sess-compaction-gate", "/Users/quinn/proj", T(0)), compactionRec("comp1", null, rawSummary, T(1))],
+    });
+
+    const parsed = readPi(join(root, "sessions"));
+    assert.equal(
+      parsed.compactionSummaries.length,
+      0,
+      "a summary that only clears the noise floor BEFORE redaction must not land — the gate checks the redacted length, not the raw one",
+    );
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("user@example.com"), "the raw email text must never leak, gated out or not");
+  });
+});
+
 // ── 8. toolResult: forId/bytes correct; content text never stored ──
 
 test("toolResult: forId/bytes/isError correct; the result content text never appears in the serialized bundle", () => {
@@ -485,6 +511,32 @@ test("smoke: bundle flows through buildDigest + computeAgenticLiteracy + compute
     const intensity = computeIntensity(parsed);
     assert.ok(intensity !== null);
     assert.ok(intensity.activeDays >= 1, "session should be counted as an active day, not silently dropped");
+  });
+});
+
+// ── 12b. session with only unrecognized record types (plus the header) ──
+
+test("session with only unrecognized record types (plus the header): messages stay empty, firstTs/lastTs come only from the recognized (header) timestamp, lenses don't throw", () => {
+  withRoot((root) => {
+    writeSession(root, {
+      lines: [
+        sessionHeader("sess-unrecognized", "/Users/petra/proj", T(0)),
+        { type: "totally_unknown_type_a", id: "u1", parentId: null, timestamp: T(1) },
+        { type: "totally_unknown_type_b", id: "u2", parentId: "u1", timestamp: T(5) },
+      ],
+    });
+
+    const parsed = readPi(join(root, "sessions"));
+    assert.equal(parsed.sessions.length, 1);
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 0, "no `message` records means no messages, regardless of the other record types present");
+    assert.equal(s.firstTs, T(0), "only the header's timestamp is a recognized session-ts source here");
+    assert.equal(s.lastTs, T(0), "unrecognized record types must never call stampSessionTs, despite carrying a timestamp field");
+
+    const merged = mergeSources(parsed);
+    assert.doesNotThrow(() => buildDigest(merged));
+    assert.doesNotThrow(() => computeAgenticLiteracy(merged));
+    assert.doesNotThrow(() => computeIntensity(merged));
   });
 });
 

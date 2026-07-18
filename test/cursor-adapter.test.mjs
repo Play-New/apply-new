@@ -350,6 +350,62 @@ test("tool mapping: Shell->Bash cmd, Read path, Grep pattern->q, Write contents 
   });
 });
 
+// ── 5b. Glob glob_pattern -> q; TodoWrite passes through unchanged, args.todos never leaks ──
+
+test("tool mapping: Glob's glob_pattern -> q extracted; TodoWrite passes through with name unchanged and no args.todos content leakage", { skip: sqlite ? false : "node:sqlite unavailable" }, () => {
+  withRoot((root) => {
+    makeCursorSession(root, {
+      agentId: "sess-glob-todo",
+      blobs: [
+        userQueryMsg("plan and search", { timestamp: T1 }),
+        assistantMsg({
+          text: "on it",
+          toolCalls: [
+            { id: "call-glob", name: "Glob", args: { glob_pattern: "**/*.test.mjs" } },
+            { id: "call-todo", name: "TodoWrite", args: { todos: [{ content: "SECRET_TODO_CONTENT_TEXT", status: "pending" }] } },
+          ],
+        }),
+      ],
+    });
+    const parsed = readCursor(root);
+    const s = parsed.sessions[0];
+    const toolUses = s.messages.flatMap((m) => m.toolUses);
+    const byId = Object.fromEntries(toolUses.map((u) => [u.id, u]));
+    assert.equal(byId["call-glob"].name, "Glob");
+    assert.equal(byId["call-glob"].q, "**/*.test.mjs");
+    assert.equal(byId["call-todo"].name, "TodoWrite", "TodoWrite is not in TOOL_MAP; fallbackToolName leaves an underscore-free name unchanged");
+    assert.equal(byId["call-todo"].path, "");
+    assert.equal(byId["call-todo"].cmd, "");
+    assert.equal(byId["call-todo"].q, "", "no known-safe arg key matches args.todos, so q stays empty — unknown arg keys are simply never read");
+    const dump = JSON.stringify(parsed);
+    assert.ok(!dump.includes("SECRET_TODO_CONTENT_TEXT"), "TodoWrite's args.todos content must never be stored anywhere in the bundle");
+  });
+});
+
+// ── 5c. stats.originatorCounts (root blob field 22, the client discriminator) ──
+
+test("stats.originatorCounts reflects root blob field 22 (the client discriminator) per session", { skip: sqlite ? false : "node:sqlite unavailable" }, () => {
+  withRoot((root) => {
+    makeCursorSession(root, {
+      hexDir: "abc123hexdir00000000000000000000",
+      uuidDir: "11111111-1111-1111-1111-111111111111",
+      agentId: "sess-orig-1",
+      originator: "cli",
+      blobs: [userQueryMsg("hi", { timestamp: T1 }), assistantMsg({ text: "hello" })],
+    });
+    makeCursorSession(root, {
+      hexDir: "def456hexdir00000000000000000000",
+      uuidDir: "22222222-2222-2222-2222-222222222222",
+      agentId: "sess-orig-2",
+      originator: "vscode",
+      blobs: [userQueryMsg("hi again", { timestamp: T1 }), assistantMsg({ text: "hello again" })],
+    });
+    const parsed = readCursor(root);
+    assert.equal(parsed.sessions.length, 2);
+    assert.deepEqual(parsed.stats.originatorCounts, { cli: 1, vscode: 1 });
+  });
+});
+
 // ── 6. isError + bytes ──
 
 test("tool-result: isError true from highLevelToolCallResult; bytes computed; result content never stored", { skip: sqlite ? false : "node:sqlite unavailable" }, () => {
@@ -458,6 +514,7 @@ test("absent root returns an EMPTY bundle; an unreadable (garbage) store.db is s
   assert.deepEqual(empty.sessions, []);
   assert.deepEqual(empty.files, []);
   assert.equal(empty.stats.backend, null);
+  assert.equal(empty.stats.discoveryErrors, 0, "an absent root never calls discoverSessions, so discoveryErrors stays 0");
 
   withRoot((root) => {
     const dir = join(root, "deadbeefdeadbeefdeadbeefdeadbeef", "22222222-2222-2222-2222-222222222222");
@@ -467,6 +524,20 @@ test("absent root returns an EMPTY bundle; an unreadable (garbage) store.db is s
     const parsed = readCursor(root);
     assert.equal(parsed.sessions.length, 0);
     assert.equal(parsed.stats.unreadableSessions, 1);
+  });
+});
+
+// ── 10b. discoverSessions failures are disclosed, not silently swallowed (runs on every Node version — no sqlite involved) ──
+
+test("discovery: readdirSync failure on a root that is a FILE (not a directory) is disclosed via stats.discoveryErrors, not silently indistinguishable from zero sessions", () => {
+  withRoot((root) => {
+    const filePath = join(root, "not-a-directory");
+    writeFileSync(filePath, "just a file, not a directory");
+    assert.doesNotThrow(() => readCursor(filePath));
+    const parsed = readCursor(filePath);
+    assert.equal(parsed.sessions.length, 0);
+    assert.equal(parsed.files.length, 0);
+    assert.equal(parsed.stats.discoveryErrors, 1, "readdirSync on a file path throws ENOTDIR cross-platform; that failure must be counted, not swallowed");
   });
 });
 

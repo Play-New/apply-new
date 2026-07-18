@@ -514,9 +514,9 @@ test("isError: Exit code 1 -> true, Exit code 0 -> false; output text absent fro
     const rA = results.find((r) => r.forId === "cA");
     const rB = results.find((r) => r.forId === "cB");
     assert.equal(rA.isError, true);
-    assert.equal(rA.bytes, Buffer.byteLength(failOutput));
+    assert.equal(rA.bytes, failOutput.length, "bytes is the UTF-16 code-unit length (.length), not Buffer.byteLength");
     assert.equal(rB.isError, false);
-    assert.equal(rB.bytes, Buffer.byteLength(okOutput));
+    assert.equal(rB.bytes, okOutput.length, "bytes is the UTF-16 code-unit length (.length), not Buffer.byteLength");
 
     const bundleJson = JSON.stringify(parsed);
     assert.ok(!bundleJson.includes("SECRET_OUTPUT_TEXT_FAIL"), "tool output text leaked");
@@ -543,6 +543,93 @@ test("malformed JSON line increments files[].malformed; the rest of the session 
     assert.equal(parsed.sessions.length, 1);
     assert.equal(parsed.sessions[0].messages.length, 2);
     assert.equal(parsed.sessions[0].messages[1].textRedacted.trim(), "hi there");
+  });
+});
+
+test("function_call with invalid arguments JSON (the line itself is valid): toolUse still emitted with the name mapped and empty extraction, no throw, and malformedLines is NOT incremented (that counter is for unparseable LINES, not unparseable nested arguments)", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      lines: [
+        rec("session_meta", { id: "sess-bad-args", cwd: "/Users/nina/proj", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/nina/proj", model: "gpt-5.5" }, T(1)),
+        rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "run something" }] }, T(2)),
+        // `arguments` is a string field on an otherwise perfectly valid JSON
+        // line — JSON.stringify below escapes it correctly, so the LINE
+        // parses fine; only the nested arguments string is malformed JSON.
+        rec("response_item", { type: "function_call", name: "exec_command", arguments: "{not valid json", call_id: "call-bad-args" }, T(3)),
+        rec("response_item", { type: "function_call_output", call_id: "call-bad-args", output: "Exit code: 0\nOutput:\nok" }, T(4)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "done" }] }, T(5)),
+      ],
+    });
+
+    assert.doesNotThrow(() => readCodex(root));
+    const parsed = readCodex(root);
+    assert.equal(parsed.sessions.length, 1);
+    const toolUses = parsed.sessions[0].messages.flatMap((m) => m.toolUses);
+    const use = toolUses.find((u) => u.id === "call-bad-args");
+    assert.ok(use, "toolUse must still be emitted despite the malformed arguments string");
+    assert.equal(use.name, "Bash", "name mapping (exec_command -> Bash) still applies");
+    assert.equal(use.cmd, "", "malformed arguments degrade to {} so no cmd can be extracted");
+    assert.equal(use.path, "");
+    assert.equal(use.q, "");
+
+    // The LINE parsed fine — this is a different failure mode from a
+    // malformed JSONL line, and must not be counted as one.
+    assert.equal(parsed.stats.malformedLines, 0, "malformedLines counts unparseable LINES, not unparseable nested arguments JSON");
+    assert.equal(parsed.files[0].malformed, 0);
+  });
+});
+
+test("session file with no session_meta line: sessionId falls back to the filename uuid, projectLabel stays project-unknown, the session still parses", () => {
+  withRoot((root) => {
+    const uuid = "22222222-3333-7444-8555-666666666666";
+    writeRollout(root, {
+      uuid,
+      lines: [
+        // no session_meta record at all
+        rec("turn_context", { model: "gpt-5.5" }, T(0)),
+        rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "hello with no header" }] }, T(1)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "hi, no session_meta seen" }] }, T(2)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    assert.equal(parsed.sessions.length, 1);
+    const s = parsed.sessions[0];
+    assert.equal(s.sessionId, uuid, "sessionId must fall back to the uuid pulled from the filename");
+    assert.equal(s.projectLabel, "project-unknown", "no session_meta means no cwd, so projectLabel stays the default");
+    assert.equal(s.messages.length, 2, "the session must still parse fully despite the missing header");
+    assert.equal(s.messages[0].textRedacted.trim(), "hello with no header");
+    assert.equal(s.messages[1].textRedacted.trim(), "hi, no session_meta seen");
+  });
+});
+
+test("stats.originatorCounts: counts originators correctly across two synthetic sessions with different originators", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      date: "2026/01/15",
+      uuid: "33333333-4444-7555-8666-777777777777",
+      lines: [
+        rec("session_meta", { id: "sess-orig-a", cwd: "/Users/omar/proj-a", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/omar/proj-a", model: "gpt-5.5" }, T(1)),
+        rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "hi from tui" }] }, T(2)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "hello" }] }, T(3)),
+      ],
+    });
+    writeRollout(root, {
+      date: "2026/01/16",
+      uuid: "44444444-5555-7666-8777-888888888888",
+      lines: [
+        rec("session_meta", { id: "sess-orig-b", cwd: "/Users/omar/proj-b", originator: "vscode-extension", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/omar/proj-b", model: "gpt-5.5" }, T(1)),
+        rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "hi from vscode" }] }, T(2)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "hello there" }] }, T(3)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    assert.equal(parsed.sessions.length, 2);
+    assert.deepEqual(parsed.stats.originatorCounts, { "codex-tui": 1, "vscode-extension": 1 });
   });
 });
 
