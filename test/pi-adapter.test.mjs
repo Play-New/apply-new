@@ -20,6 +20,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { readPi } from "../src/adapters/pi.mjs";
+import { redactText } from "../src/redact.mjs";
 import { mergeSources } from "../src/adapters/opencode.mjs";
 import { buildDigest } from "../src/digest.mjs";
 import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
@@ -66,6 +67,12 @@ const toolResultMsg = (id, parentId, toolCallId, toolName, text, isError, ts) =>
   message: { role: "toolResult", toolCallId, toolName, content: [{ type: "text", text }], isError, timestamp: ts },
 });
 const compactionRec = (id, parentId, summary, ts) => ({ type: "compaction", id, parentId, summary, timestamp: ts });
+// Multi-block user message (userMsg only supports a single text block) —
+// needed for the mixed injected-block + human-block filtering tests below.
+const userMsgBlocks = (id, parentId, texts, ts) => ({
+  type: "message", id, parentId, timestamp: ts,
+  message: { role: "user", content: texts.map((text) => ({ type: "text", text })), timestamp: ts },
+});
 
 function withRoot(fn) {
   const root = makePiRoot();
@@ -264,6 +271,31 @@ test("compaction: a long summary lands (redacted) in compactionSummaries; a sub-
   });
 });
 
+test("compaction threshold ordering: a summary whose PRE-redaction length clears the noise floor but whose POST-redaction length does not is NOT included (pins the post-redaction gate)", () => {
+  withRoot((root) => {
+    // Repeated emails collapse hard under redaction (~18 raw chars ->
+    // "⟨email⟩ " = 8 redacted chars per repeat), so a run long enough to
+    // clear the 200-char floor raw shrinks well under it once redacted.
+    const rawSummary = "user@example.com ".repeat(15);
+    const redactedPreview = redactText(rawSummary);
+    assert.ok(rawSummary.length > 200, `fixture must exceed the noise floor pre-redaction, got ${rawSummary.length}`);
+    assert.ok(redactedPreview.length < 200, `fixture must fall under the noise floor post-redaction, got ${redactedPreview.length}`);
+
+    writeSession(root, {
+      lines: [sessionHeader("sess-compaction-gate", "/Users/quinn/proj", T(0)), compactionRec("comp1", null, rawSummary, T(1))],
+    });
+
+    const parsed = readPi(join(root, "sessions"));
+    assert.equal(
+      parsed.compactionSummaries.length,
+      0,
+      "a summary that only clears the noise floor BEFORE redaction must not land — the gate checks the redacted length, not the raw one",
+    );
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("user@example.com"), "the raw email text must never leak, gated out or not");
+  });
+});
+
 // ── 8. toolResult: forId/bytes correct; content text never stored ──
 
 test("toolResult: forId/bytes/isError correct; the result content text never appears in the serialized bundle", () => {
@@ -360,6 +392,94 @@ test("chain: uuid/parentUuid/ts match the record's own id/parentId/timestamp; IS
   });
 });
 
+// ── 11b. <file name="...">...</file> injected user text is filtered ──
+
+test('<file name="..."> injected turns are filtered: a whole message wrapped entirely in the tag is dropped, text never surfaces, userMessages count unaffected', () => {
+  withRoot((root) => {
+    writeSession(root, {
+      dirCwd: "/Users/mona/skillproj",
+      lines: [
+        sessionHeader("sess-filetag", "/Users/mona/skillproj", T(0)),
+        userMsg("u1", null, "please help me run the planner skill", T(1)),
+        assistantMsg("a1", "u1", T(2), { content: [{ type: "text", text: "sure, here is the plan" }] }),
+        userMsg(
+          "u2",
+          "a1",
+          '<file name="/Users/mona/.pi/agent/skills/poc-p0-factory/prompts/01-planner.md">\nMARKER_FILETAG_TEXT stage 1 planner instructions\n</file>',
+          T(3),
+        ),
+        userMsg("u3", "u2", "real follow-up question", T(4)),
+      ],
+    });
+
+    const parsed = readPi(join(root, "sessions"));
+    const s = parsed.sessions[0];
+    const roles = s.messages.map((m) => m.role);
+    assert.equal(roles.filter((r) => r === "user").length, 2, `expected exactly 2 real user messages, got roles ${JSON.stringify(roles)}`);
+    assert.ok(!s.messages.some((m) => m.textRedacted.includes("MARKER_FILETAG_TEXT")), "file-tag dump text must not surface on any message");
+
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("MARKER_FILETAG_TEXT"), "file-tag dump text leaked anywhere in the bundle");
+
+    const digest = buildDigest(mergeSources(parsed));
+    assert.equal(digest.projects[0].userMessages, 2, "the injected file-tag dump must not inflate the userMessages count");
+    assert.ok(
+      !digest.projects[0].promptSamples.some((p) => p.includes("MARKER_FILETAG_TEXT")),
+      "file-tag dump text must not surface in promptSamples",
+    );
+  });
+});
+
+test('<file name="..."> filtering is per block: mixing a file-tag block with a real block in the same message keeps only the real block', () => {
+  withRoot((root) => {
+    writeSession(root, {
+      lines: [
+        sessionHeader("sess-filetag-mixed", "/Users/mona/skillproj", T(0)),
+        userMsgBlocks(
+          "u1",
+          null,
+          [
+            '<file name="/Users/mona/.pi/agent/skills/poc-p0-factory/prompts/01-planner.md">\nMARKER_MIXED_FILETAG_TEXT\n</file>',
+            "MARKER_MIXED_REAL_TEXT actual human question",
+          ],
+          T(1),
+        ),
+        assistantMsg("a1", "u1", T(2), { content: [{ type: "text", text: "answering the mixed message" }] }),
+      ],
+    });
+
+    const parsed = readPi(join(root, "sessions"));
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, `expected the mixed message to survive as one user turn, got roles ${JSON.stringify(s.messages.map((m) => m.role))}`);
+    const [user, asst] = s.messages;
+    assert.equal(user.role, "user");
+    assert.ok(user.textRedacted.includes("MARKER_MIXED_REAL_TEXT"), "the real block must survive");
+    assert.ok(!user.textRedacted.includes("MARKER_MIXED_FILETAG_TEXT"), "the file-tag-wrapped block must be dropped, not the whole message");
+    assert.equal(asst.role, "assistant");
+
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("MARKER_MIXED_FILETAG_TEXT"), "file-tag dump text leaked anywhere in the bundle");
+  });
+});
+
+test('guard: a real user message that merely mentions a <file name="..."> tag inline (not wrapping the whole block) survives', () => {
+  withRoot((root) => {
+    writeSession(root, {
+      lines: [
+        sessionHeader("sess-filetag-mention", "/Users/mona/skillproj", T(0)),
+        userMsg("u1", null, 'why does my prompt include a <file name="x.md">...</file> block? is that expected?', T(1)),
+        assistantMsg("a1", "u1", T(2), { content: [{ type: "text", text: "yes, that's the skill machinery re-injecting file contents" }] }),
+      ],
+    });
+
+    const parsed = readPi(join(root, "sessions"));
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, 'a message that merely mentions a <file name="..."> tag inline (not wrapping the whole block) must survive');
+    assert.equal(s.messages[0].role, "user");
+    assert.ok(s.messages[0].textRedacted.includes('<file name="x.md">'));
+  });
+});
+
 // ── 12. Smoke-run through the shared lenses ──
 
 test("smoke: bundle flows through buildDigest + computeAgenticLiteracy + computeIntensity without throwing, session is counted", () => {
@@ -391,6 +511,32 @@ test("smoke: bundle flows through buildDigest + computeAgenticLiteracy + compute
     const intensity = computeIntensity(parsed);
     assert.ok(intensity !== null);
     assert.ok(intensity.activeDays >= 1, "session should be counted as an active day, not silently dropped");
+  });
+});
+
+// ── 12b. session with only unrecognized record types (plus the header) ──
+
+test("session with only unrecognized record types (plus the header): messages stay empty, firstTs/lastTs come only from the recognized (header) timestamp, lenses don't throw", () => {
+  withRoot((root) => {
+    writeSession(root, {
+      lines: [
+        sessionHeader("sess-unrecognized", "/Users/petra/proj", T(0)),
+        { type: "totally_unknown_type_a", id: "u1", parentId: null, timestamp: T(1) },
+        { type: "totally_unknown_type_b", id: "u2", parentId: "u1", timestamp: T(5) },
+      ],
+    });
+
+    const parsed = readPi(join(root, "sessions"));
+    assert.equal(parsed.sessions.length, 1);
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 0, "no `message` records means no messages, regardless of the other record types present");
+    assert.equal(s.firstTs, T(0), "only the header's timestamp is a recognized session-ts source here");
+    assert.equal(s.lastTs, T(0), "unrecognized record types must never call stampSessionTs, despite carrying a timestamp field");
+
+    const merged = mergeSources(parsed);
+    assert.doesNotThrow(() => buildDigest(merged));
+    assert.doesNotThrow(() => computeAgenticLiteracy(merged));
+    assert.doesNotThrow(() => computeIntensity(merged));
   });
 });
 

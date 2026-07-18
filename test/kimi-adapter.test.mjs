@@ -318,6 +318,139 @@ function iso_(ms) {
   return new Date(ms).toISOString();
 }
 
+// context.append_message with a user-role message whose content is MULTIPLE
+// text blocks (appendMessageUser only supports a single block) — needed for
+// the mixed injected-block + human-block filtering tests below, same role
+// this file's `rec`-equivalent granularity gives codex's test file.
+const appendMessageUserBlocks = (t, texts) => ({
+  type: "context.append_message",
+  time: t,
+  message: { role: "user", content: texts.map((text) => ({ type: "text", text })), toolCalls: [], origin: { kind: "user" } },
+});
+
+// ── 1d. <system-reminder>-wrapped injected user messages are filtered ──
+
+test("<system-reminder> injected turns are filtered: a whole message wrapped entirely in the tag is dropped, text never surfaces, userMessages count unaffected", () => {
+  withRoot((root) => {
+    const { dir } = makeSessionDir(root, { wd: "wd_proj_reminder123456" });
+    writeStateJson(dir, { workDir: "/Users/synthetic/reminder-project" });
+    writeAgentWire(dir, "main", [
+      appendMessageUser(T(0), "please fix the bug"),
+      stepBegin(T(1), "0", 1),
+      contentText(T(1), "0", 1, "on it"),
+      stepEnd(T(2), "0", 1, { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 }),
+      appendMessageUser(T(3), "<system-reminder>\nMARKER_REMINDER_TEXT the TodoList tool has not been updated recently.\n</system-reminder>"),
+      appendMessageUser(T(4), "real follow-up question"),
+    ]);
+
+    const parsed = readKimi(join(root, "sessions"));
+    const s = parsed.sessions[0];
+    const roles = s.messages.map((m) => m.role);
+    assert.equal(roles.filter((r) => r === "user").length, 2, `expected exactly 2 real user messages, got roles ${JSON.stringify(roles)}`);
+    assert.ok(!s.messages.some((m) => m.textRedacted.includes("MARKER_REMINDER_TEXT")), "reminder text must not surface on any message");
+
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("MARKER_REMINDER_TEXT"), "reminder text leaked anywhere in the bundle");
+
+    const digest = buildDigest(mergeSources(parsed));
+    assert.equal(digest.projects[0].userMessages, 2, "the injected reminder must not inflate the userMessages count");
+    assert.ok(
+      !digest.projects[0].promptSamples.some((p) => p.includes("MARKER_REMINDER_TEXT")),
+      "reminder text must not surface in promptSamples",
+    );
+  });
+});
+
+test("<system-reminder> filtering is per block: mixing a reminder block with a real block in the same message keeps only the real block", () => {
+  withRoot((root) => {
+    const { dir } = makeSessionDir(root, { wd: "wd_proj_reminder654321" });
+    writeStateJson(dir);
+    writeAgentWire(dir, "main", [
+      appendMessageUserBlocks(T(0), [
+        "<system-reminder>\nMARKER_MIXED_REMINDER_TEXT\n</system-reminder>",
+        "MARKER_MIXED_REAL_TEXT actual human question",
+      ]),
+      stepBegin(T(1), "0", 1),
+      contentText(T(1), "0", 1, "answering the mixed message"),
+      stepEnd(T(2), "0", 1, { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 }),
+    ]);
+
+    const parsed = readKimi(join(root, "sessions"));
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, `expected the mixed message to survive as one user turn, got roles ${JSON.stringify(s.messages.map((m) => m.role))}`);
+    const [user, asst] = s.messages;
+    assert.equal(user.role, "user");
+    assert.ok(user.textRedacted.includes("MARKER_MIXED_REAL_TEXT"), "the real block must survive");
+    assert.ok(!user.textRedacted.includes("MARKER_MIXED_REMINDER_TEXT"), "the reminder-wrapped block must be dropped, not the whole message");
+    assert.equal(asst.role, "assistant");
+
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("MARKER_MIXED_REMINDER_TEXT"), "reminder text leaked anywhere in the bundle");
+  });
+});
+
+test("guard: a real user message that merely mentions <system-reminder> inline (not wrapping the whole block) survives", () => {
+  withRoot((root) => {
+    const { dir } = makeSessionDir(root, { wd: "wd_proj_reminder999999" });
+    writeStateJson(dir);
+    writeAgentWire(dir, "main", [
+      appendMessageUser(T(0), "why do I keep seeing a <system-reminder> tag in my transcripts? is that normal?"),
+      stepBegin(T(1), "0", 1),
+      contentText(T(1), "0", 1, "yes, that's an injected nudge from the framework"),
+      stepEnd(T(2), "0", 1, { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 }),
+    ]);
+
+    const parsed = readKimi(join(root, "sessions"));
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, "a message that merely mentions <system-reminder> inline (not wrapping the whole block) must survive");
+    assert.equal(s.messages[0].role, "user");
+    assert.ok(s.messages[0].textRedacted.includes("<system-reminder>"));
+  });
+});
+
+// ── 1e. An all-filtered injected message mid-turn must not corrupt turn synthesis ──
+
+test("turn synthesis safety: an all-filtered <system-reminder> mid-turn is skipped without flushing or splitting the open assistant turn", () => {
+  withRoot((root) => {
+    const { dir, sessionId } = makeSessionDir(root, { wd: "wd_proj_reminder_midturn" });
+    writeStateJson(dir);
+    writeAgentWire(dir, "main", [
+      appendMessageUser(T(0), "please fix the bug"),
+      stepBegin(T(1), "0", 1),
+      contentText(T(1), "0", 1, "before the nudge"),
+      // A fully-wrapped reminder landing MID-TURN must be skipped entirely:
+      // no flush of the open loop-event turn, no emitted message of its own,
+      // no reopened turn — the open turn just keeps accumulating.
+      appendMessageUser(T(2), "<system-reminder>\nMARKER_MIDTURN_REMINDER the TodoList tool has not been updated recently.\n</system-reminder>"),
+      contentText(T(3), "0", 1, "after the nudge"),
+      stepEnd(T(4), "0", 1, { inputOther: 10, output: 5, inputCacheRead: 0, inputCacheCreation: 0 }),
+    ]);
+
+    const parsed = readKimi(join(root, "sessions"));
+    const s = parsed.sessions[0];
+    // Exactly 1 user + 1 assistant: the reminder never became its own
+    // message, and it never split the loop-event turn into two.
+    assert.equal(s.messages.length, 2, `expected 1 user + 1 assistant, got roles ${JSON.stringify(s.messages.map((m) => m.role))}`);
+    const [user, asst] = s.messages;
+    assert.equal(user.role, "user");
+    assert.equal(user.textRedacted.trim(), "please fix the bug");
+    assert.equal(asst.role, "assistant");
+    assert.ok(asst.textRedacted.includes("before the nudge"), "content before the injected reminder must survive");
+    assert.ok(asst.textRedacted.includes("after the nudge"), "content after the injected reminder must survive in the SAME turn");
+    assert.ok(!asst.textRedacted.includes("MARKER_MIDTURN_REMINDER"), "reminder text must not have leaked into the assistant turn");
+
+    // ts is stamped by the FIRST folded record (the before-nudge content.part
+    // at T(1)) — unaffected by the skipped reminder in between.
+    assert.equal(asst.ts, iso_(T(1)), "turn ts must come from its first folded record, not be disturbed by the skipped reminder");
+    assert.equal(asst.uuid, `${sessionId}-main-turn-2`, "no extra turn number must have been consumed for the skipped reminder");
+    assert.equal(asst.parentUuid, user.uuid);
+    assert.equal(s.chain.length, 2);
+
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("MARKER_MIDTURN_REMINDER"), "reminder text leaked anywhere in the bundle");
+  });
+});
+
 // ── 2. Usage rename + sum across step.ends; no step.end -> usage null ──
 
 test("usage: inputOther/inputCacheRead/inputCacheCreation rename to input/cacheRead/cacheCreate; two step.ends in one turn sum; a turn with no step.end has usage null", () => {

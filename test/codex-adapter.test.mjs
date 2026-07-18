@@ -185,6 +185,97 @@ test("framework filtering is per content block: a user message mixing a framewor
   });
 });
 
+test("AGENTS.md instructions dump is filtered like the other framework-injected forms: a whole message is dropped, text never surfaces, userMessages count unaffected", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      lines: [
+        rec("session_meta", { id: "sess-agentsmd", cwd: "/Users/mia/app", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/mia/app", model: "gpt-5.5" }, T(1)),
+        rec(
+          "response_item",
+          { type: "message", role: "user", content: [{ type: "input_text", text: "# AGENTS.md instructions for /Users/mia/app\n\n<INSTRUCTIONS>\nMARKER_AGENTSMD_TEXT\n</INSTRUCTIONS>" }] },
+          T(2),
+        ),
+        rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "real question here" }] }, T(3)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "real answer here" }] }, T(4)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, `expected only the real user/assistant pair, got ${JSON.stringify(s.messages.map((m) => m.role))}`);
+    assert.equal(s.messages[0].role, "user");
+    assert.equal(s.messages[0].textRedacted.trim(), "real question here");
+
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("MARKER_AGENTSMD_TEXT"), "AGENTS.md instructions text leaked");
+
+    const digest = buildDigest(mergeSources(parsed));
+    assert.equal(digest.projects[0].userMessages, 1, "the AGENTS.md dump must not inflate the userMessages count");
+    assert.ok(
+      !digest.projects[0].promptSamples.some((p) => p.includes("MARKER_AGENTSMD_TEXT")),
+      "AGENTS.md text must not surface in promptSamples",
+    );
+  });
+});
+
+test("AGENTS.md filtering is per content block: mixing the dump with a real block in the same message keeps only the real block", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      lines: [
+        rec("session_meta", { id: "sess-agentsmd-mixed", cwd: "/Users/mia/app", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/mia/app", model: "gpt-5.5" }, T(1)),
+        rec(
+          "response_item",
+          {
+            type: "message",
+            role: "user",
+            content: [
+              { type: "input_text", text: "# AGENTS.md instructions for /Users/mia/app\n\n<INSTRUCTIONS>\nMARKER_AGENTSMD_MIXED_TEXT\n</INSTRUCTIONS>" },
+              { type: "input_text", text: "MARKER_MIXED_REAL_TEXT actual human question" },
+            ],
+          },
+          T(2),
+        ),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "answering the mixed message" }] }, T(3)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, `expected the mixed message to survive as one user turn, got ${JSON.stringify(s.messages.map((m) => m.role))}`);
+    assert.equal(s.messages[0].role, "user");
+    assert.ok(s.messages[0].textRedacted.includes("MARKER_MIXED_REAL_TEXT"), "the real block must survive");
+    assert.ok(!s.messages[0].textRedacted.includes("MARKER_AGENTSMD_MIXED_TEXT"), "the AGENTS.md-wrapped block must be dropped, not the whole message");
+
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("MARKER_AGENTSMD_MIXED_TEXT"), "AGENTS.md dump text leaked anywhere in the bundle");
+  });
+});
+
+test("guard: a real user message that merely mentions the AGENTS.md instructions phrase inline (not as its leading text) survives", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      lines: [
+        rec("session_meta", { id: "sess-agentsmd-mention", cwd: "/Users/mia/app", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/mia/app", model: "gpt-5.5" }, T(1)),
+        rec(
+          "response_item",
+          { type: "message", role: "user", content: [{ type: "input_text", text: 'I noticed the "# AGENTS.md instructions for" dump earlier, can you explain why it appears?' }] },
+          T(2),
+        ),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "sure, that's Codex re-injecting your repo's AGENTS.md" }] }, T(3)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, "a message that merely mentions the AGENTS.md prefix inline (not as its leading text) must survive");
+    assert.equal(s.messages[0].role, "user");
+    assert.ok(s.messages[0].textRedacted.includes("AGENTS.md instructions for"));
+  });
+});
+
 test("shell array command is joined with spaces; secret-looking tokens in cmd are redacted", () => {
   withRoot((root) => {
     writeRollout(root, {
@@ -279,15 +370,22 @@ test("apply_patch with zero parseable file headers falls back to a single pathle
 
 test("custom_tool_call_output: status drives isError (failed -> true, completed -> false)", () => {
   withRoot((root) => {
+    const failOutput = "boom — fatto ✅ è male";
+    const okOutput = "great — fatto ✅ è bene";
+    // Hard guard: same rationale as the function_call_output bytes test —
+    // ASCII-only fixtures can't distinguish `.length` from `Buffer.byteLength`,
+    // so this pins the fixtures to actually contain multi-byte chars.
+    assert.notEqual(failOutput.length, Buffer.byteLength(failOutput), "fixture must contain multi-byte chars so byte-unit semantics diverge");
+    assert.notEqual(okOutput.length, Buffer.byteLength(okOutput), "fixture must contain multi-byte chars so byte-unit semantics diverge");
     writeRollout(root, {
       lines: [
         rec("session_meta", { id: "sess-custom-status", cwd: "/Users/erin/proj", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
         rec("turn_context", { cwd: "/Users/erin/proj", model: "gpt-5.5" }, T(1)),
         rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "run two custom tools" }] }, T(2)),
         rec("response_item", { type: "custom_tool_call", call_id: "cfail", name: "some_custom_tool", input: "" }, T(3)),
-        rec("response_item", { type: "custom_tool_call_output", call_id: "cfail", status: "failed", output: "boom" }, T(4)),
+        rec("response_item", { type: "custom_tool_call_output", call_id: "cfail", status: "failed", output: failOutput }, T(4)),
         rec("response_item", { type: "custom_tool_call", call_id: "cok", name: "some_custom_tool", input: "" }, T(5)),
-        rec("response_item", { type: "custom_tool_call_output", call_id: "cok", status: "completed", output: "great" }, T(6)),
+        rec("response_item", { type: "custom_tool_call_output", call_id: "cok", status: "completed", output: okOutput }, T(6)),
         rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "done both" }] }, T(7)),
       ],
     });
@@ -300,6 +398,8 @@ test("custom_tool_call_output: status drives isError (failed -> true, completed 
     assert.ok(rOk, "expected a toolResult for cok");
     assert.equal(rFail.isError, true, "status: failed should be an error");
     assert.equal(rOk.isError, false, "status: completed should not be an error");
+    assert.equal(rFail.bytes, failOutput.length, "bytes is the UTF-16 code-unit length (.length), not Buffer.byteLength");
+    assert.equal(rOk.bytes, okOutput.length, "bytes is the UTF-16 code-unit length (.length), not Buffer.byteLength");
   });
 });
 
@@ -403,8 +503,16 @@ test("usage: two token_count events in one turn sum deltas; cacheRead from cache
 
 test("isError: Exit code 1 -> true, Exit code 0 -> false; output text absent from bundle, bytes correct", () => {
   withRoot((root) => {
-    const failOutput = "Exit code: 1\nWall time: 0.2 seconds\nOutput:\nboom SECRET_OUTPUT_TEXT_FAIL";
-    const okOutput = "Exit code: 0\nWall time: 0.1 seconds\nOutput:\nok SECRET_OUTPUT_TEXT_OK";
+    const failOutput = "Exit code: 1\nWall time: 0.2 seconds\nOutput:\nboom SECRET_OUTPUT_TEXT_FAIL — fatto ✅ è ok";
+    const okOutput = "Exit code: 0\nWall time: 0.1 seconds\nOutput:\nok SECRET_OUTPUT_TEXT_OK — fatto ✅ è ok";
+    // Hard guard: these fixtures must contain multi-byte UTF-8 characters so
+    // `.length` (UTF-16 code units) and `Buffer.byteLength` (UTF-8 bytes)
+    // actually diverge. Without this, the bytes assertions below pass under
+    // BOTH the old Buffer.byteLength code and the new .length code, and pin
+    // nothing. If someone edits these fixtures back to pure ASCII, this
+    // guard fails loudly instead of the test silently going toothless.
+    assert.notEqual(failOutput.length, Buffer.byteLength(failOutput), "fixture must contain multi-byte chars so byte-unit semantics diverge");
+    assert.notEqual(okOutput.length, Buffer.byteLength(okOutput), "fixture must contain multi-byte chars so byte-unit semantics diverge");
     writeRollout(root, {
       lines: [
         rec("session_meta", { id: "sess-err", cwd: "/Users/ivan/proj", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
@@ -423,9 +531,9 @@ test("isError: Exit code 1 -> true, Exit code 0 -> false; output text absent fro
     const rA = results.find((r) => r.forId === "cA");
     const rB = results.find((r) => r.forId === "cB");
     assert.equal(rA.isError, true);
-    assert.equal(rA.bytes, Buffer.byteLength(failOutput));
+    assert.equal(rA.bytes, failOutput.length, "bytes is the UTF-16 code-unit length (.length), not Buffer.byteLength");
     assert.equal(rB.isError, false);
-    assert.equal(rB.bytes, Buffer.byteLength(okOutput));
+    assert.equal(rB.bytes, okOutput.length, "bytes is the UTF-16 code-unit length (.length), not Buffer.byteLength");
 
     const bundleJson = JSON.stringify(parsed);
     assert.ok(!bundleJson.includes("SECRET_OUTPUT_TEXT_FAIL"), "tool output text leaked");
@@ -452,6 +560,93 @@ test("malformed JSON line increments files[].malformed; the rest of the session 
     assert.equal(parsed.sessions.length, 1);
     assert.equal(parsed.sessions[0].messages.length, 2);
     assert.equal(parsed.sessions[0].messages[1].textRedacted.trim(), "hi there");
+  });
+});
+
+test("function_call with invalid arguments JSON (the line itself is valid): toolUse still emitted with the name mapped and empty extraction, no throw, and malformedLines is NOT incremented (that counter is for unparseable LINES, not unparseable nested arguments)", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      lines: [
+        rec("session_meta", { id: "sess-bad-args", cwd: "/Users/nina/proj", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/nina/proj", model: "gpt-5.5" }, T(1)),
+        rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "run something" }] }, T(2)),
+        // `arguments` is a string field on an otherwise perfectly valid JSON
+        // line — JSON.stringify below escapes it correctly, so the LINE
+        // parses fine; only the nested arguments string is malformed JSON.
+        rec("response_item", { type: "function_call", name: "exec_command", arguments: "{not valid json", call_id: "call-bad-args" }, T(3)),
+        rec("response_item", { type: "function_call_output", call_id: "call-bad-args", output: "Exit code: 0\nOutput:\nok" }, T(4)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "done" }] }, T(5)),
+      ],
+    });
+
+    assert.doesNotThrow(() => readCodex(root));
+    const parsed = readCodex(root);
+    assert.equal(parsed.sessions.length, 1);
+    const toolUses = parsed.sessions[0].messages.flatMap((m) => m.toolUses);
+    const use = toolUses.find((u) => u.id === "call-bad-args");
+    assert.ok(use, "toolUse must still be emitted despite the malformed arguments string");
+    assert.equal(use.name, "Bash", "name mapping (exec_command -> Bash) still applies");
+    assert.equal(use.cmd, "", "malformed arguments degrade to {} so no cmd can be extracted");
+    assert.equal(use.path, "");
+    assert.equal(use.q, "");
+
+    // The LINE parsed fine — this is a different failure mode from a
+    // malformed JSONL line, and must not be counted as one.
+    assert.equal(parsed.stats.malformedLines, 0, "malformedLines counts unparseable LINES, not unparseable nested arguments JSON");
+    assert.equal(parsed.files[0].malformed, 0);
+  });
+});
+
+test("session file with no session_meta line: sessionId falls back to the filename uuid, projectLabel stays project-unknown, the session still parses", () => {
+  withRoot((root) => {
+    const uuid = "22222222-3333-7444-8555-666666666666";
+    writeRollout(root, {
+      uuid,
+      lines: [
+        // no session_meta record at all
+        rec("turn_context", { model: "gpt-5.5" }, T(0)),
+        rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "hello with no header" }] }, T(1)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "hi, no session_meta seen" }] }, T(2)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    assert.equal(parsed.sessions.length, 1);
+    const s = parsed.sessions[0];
+    assert.equal(s.sessionId, uuid, "sessionId must fall back to the uuid pulled from the filename");
+    assert.equal(s.projectLabel, "project-unknown", "no session_meta means no cwd, so projectLabel stays the default");
+    assert.equal(s.messages.length, 2, "the session must still parse fully despite the missing header");
+    assert.equal(s.messages[0].textRedacted.trim(), "hello with no header");
+    assert.equal(s.messages[1].textRedacted.trim(), "hi, no session_meta seen");
+  });
+});
+
+test("stats.originatorCounts: counts originators correctly across two synthetic sessions with different originators", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      date: "2026/01/15",
+      uuid: "33333333-4444-7555-8666-777777777777",
+      lines: [
+        rec("session_meta", { id: "sess-orig-a", cwd: "/Users/omar/proj-a", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/omar/proj-a", model: "gpt-5.5" }, T(1)),
+        rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "hi from tui" }] }, T(2)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "hello" }] }, T(3)),
+      ],
+    });
+    writeRollout(root, {
+      date: "2026/01/16",
+      uuid: "44444444-5555-7666-8777-888888888888",
+      lines: [
+        rec("session_meta", { id: "sess-orig-b", cwd: "/Users/omar/proj-b", originator: "vscode-extension", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/omar/proj-b", model: "gpt-5.5" }, T(1)),
+        rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "hi from vscode" }] }, T(2)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "hello there" }] }, T(3)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    assert.equal(parsed.sessions.length, 2);
+    assert.deepEqual(parsed.stats.originatorCounts, { "codex-tui": 1, "vscode-extension": 1 });
   });
 });
 

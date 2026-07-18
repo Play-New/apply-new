@@ -34,6 +34,15 @@
 // a deliberate scope cut, not an oversight — revisit if/when pi ships a
 // Task-equivalent tool.
 //
+// FRAMEWORK-INJECTED USER TEXT is filtered per content block, same
+// discipline codex.mjs uses for <environment_context>: pi's skill/attachment
+// machinery re-injects file contents as a synthetic role-"user" text block
+// wrapped ENTIRELY in <file name="...">...</file> (confirmed on a real
+// session on this machine: a skill prompt file surfacing as a promptSample).
+// A block survives only when its trimmed text is not fully wrapped
+// start-to-end; a message where every block is wrapped (or which has none
+// left) is skipped entirely — see extractUserMessageText below.
+//
 // Same structural-capture posture as the other adapters: thinking text, tool
 // output, and compaction-summary overflow are reduced to lengths/booleans/
 // truncated-and-redacted text, never kept in full — see redact.mjs and
@@ -135,19 +144,42 @@ function reduceAssistantContent(content) {
   return { text, thinkingChars, signatureChars, toolUses };
 }
 
-// User message content: {type:"text", text} blocks only, per the observed shape.
-function extractUserText(content) {
-  if (!Array.isArray(content)) return "";
+// Framework-injected content: pi's skill/attachment machinery re-sends file
+// contents as a synthetic block wrapped ENTIRELY in <file name="...">...
+// </file> (checked per content block — see extractUserMessageText below).
+// The opening tag's attribute value varies per file, hence the regex; the
+// closing tag is a fixed literal. Trimmed text must both match the open-tag
+// pattern from its very start and end with the close tag, so a real block
+// that merely mentions a <file name="..."> tag inline is never dropped.
+const FILE_TAG_OPEN_RE = /^<file name="[^"]*">/;
+const FILE_TAG_CLOSE = "</file>";
+function isFrameworkWrapped(trimmed) {
+  return FILE_TAG_OPEN_RE.test(trimmed) && trimmed.endsWith(FILE_TAG_CLOSE);
+}
+
+// User message content: {type:"text", text} blocks only, per the observed
+// shape, filtered per block: a block that survives contributes to the
+// message exactly like the pre-filter extraction did; one that's
+// framework-wrapped is dropped without contributing. Returns null when no
+// block survives (all wrapped, or there were none) so the caller can skip
+// the message entirely.
+function extractUserMessageText(content) {
+  if (!Array.isArray(content)) return null;
   let text = "";
+  let survived = 0;
   for (const b of content) {
-    if (b && typeof b === "object" && b.type === "text") text += (b.text || "") + "\n";
+    if (!b || typeof b !== "object" || b.type !== "text") continue;
+    const blockText = b.text || "";
+    if (isFrameworkWrapped(blockText.trim())) continue;
+    survived++;
+    text += blockText + "\n";
   }
-  return text;
+  return survived > 0 ? text : null;
 }
 
 // toolResult.content is an array of {type:"text", text} blocks; bytes is the
-// sum of their .length — the claude-code/opencode convention (`.length`, not
-// codex's Buffer.byteLength outlier). The text itself is never stored.
+// sum of their .length — the shared `.length` (UTF-16 code units) convention
+// every adapter uses for toolResults[].bytes. The text itself is never stored.
 function toolResultBytes(content) {
   if (!Array.isArray(content)) return 0;
   return content.reduce((n, b) => n + (b && typeof b.text === "string" ? b.text.length : 0), 0);
@@ -326,7 +358,9 @@ export function readPi(root) {
           const m = r.message;
           if (!m || typeof m !== "object") break;
           if (m.role === "user") {
-            emit("user", r, extractUserText(m.content));
+            const text = extractUserMessageText(m.content);
+            if (text === null) break; // fully framework-injected <file> dump: skip entirely
+            emit("user", r, text);
           } else if (m.role === "assistant") {
             const { text, thinkingChars, signatureChars, toolUses } = reduceAssistantContent(m.content);
             emit("assistant", r, text, { thinkingChars, signatureChars, toolUses, usage: buildUsage(m.usage) });

@@ -145,7 +145,13 @@ export function assessAgainstLogs(profile, digestProjects, opts = {}) {
     excess(`profile claims ${vol.sessions} sessions but the logs contain ${totalSessions}`);
   }
   if (vol.instructions != null && vol.instructions > totalInstructions) {
-    excess(`profile claims ${vol.instructions} instructions but the logs contain ${totalInstructions}`);
+    // userMessages is text-filter-derived (framework-injected reminders, tool
+    // dumps, and attached-file wrappers are stripped before counting), so a
+    // tool update that widens the filter shrinks the re-derivation on
+    // unchanged logs — the same innocent third cause dispatchCommands has
+    // below. The message names it; the remedy is the same either way:
+    // regenerate.
+    excess(`profile claims ${vol.instructions} instructions but the logs contain ${totalInstructions} (framework-injected text filtering may also have changed in an update — regenerate)`);
   }
 
   for (const p of profile?.projects ?? []) {

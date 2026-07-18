@@ -254,13 +254,17 @@ function extractUserQuery(text) {
 // this directory name, so treating the name as anything but an opaque path
 // segment would be relying on an assumption cursor-agent never promised to
 // keep. Anything unreadable (permissions, a stray file where a dir is
-// expected) is skipped rather than thrown.
-function discoverSessions(root) {
+// expected) is skipped rather than thrown — but every skip is COUNTED in
+// acc.discoveryErrors so a root that silently yields zero sessions because
+// readdir keeps failing is distinguishable from a root that legitimately has
+// no sessions (see stats.discoveryErrors on the returned bundle).
+function discoverSessions(root, acc) {
   const out = [];
   let level1;
   try {
     level1 = readdirSync(root, { withFileTypes: true });
   } catch {
+    acc.discoveryErrors++;
     return out;
   }
   for (const d1 of level1) {
@@ -269,6 +273,7 @@ function discoverSessions(root) {
     try {
       level2 = readdirSync(join(root, d1.name), { withFileTypes: true });
     } catch {
+      acc.discoveryErrors++;
       continue;
     }
     for (const d2 of level2) {
@@ -530,19 +535,30 @@ const EMPTY = (root) => ({
   sessions: [],
   compactionSummaries: [], // cursor has no compaction-summary convention to mine
   redaction: { hits: 0, charsRemoved: 0 },
-  stats: { unreadableSessions: 0, originatorCounts: {}, backend: null },
+  stats: { unreadableSessions: 0, originatorCounts: {}, backend: null, discoveryErrors: 0 },
 });
 
 export function readCursor(root = defaultCursorRoot()) {
   if (!root || !existsSync(root)) return EMPTY(root);
-  const sqlite = loadSqlite();
-  if (!sqlite) return EMPTY(root); // Node < 22.5: no JSON fallback exists for this format
 
-  const acc = { redactionHits: 0, redactedChars: 0, unreadableSessions: 0, originatorCounts: {} };
+  // Discovery is pure fs readdir, no sqlite involved — it runs (and its
+  // failures are disclosed via stats.discoveryErrors) even on Node < 22.5,
+  // where node:sqlite is unavailable and everything else below degrades to
+  // EMPTY. This is why the "root exists but readdir keeps failing" case is
+  // never silently indistinguishable from "root has zero sessions".
+  const acc = { redactionHits: 0, redactedChars: 0, unreadableSessions: 0, originatorCounts: {}, discoveryErrors: 0 };
+  const discovered = discoverSessions(root, acc);
+
+  const sqlite = loadSqlite();
+  if (!sqlite) {
+    // Node < 22.5: no JSON fallback exists for this format.
+    return { ...EMPTY(root), stats: { ...EMPTY(root).stats, discoveryErrors: acc.discoveryErrors } };
+  }
+
   const sessions = [];
   const files = [];
 
-  for (const { hexDir, uuidDir, dbPath } of discoverSessions(root)) {
+  for (const { hexDir, uuidDir, dbPath } of discovered) {
     try {
       const { session, file } = readSession(dbPath, hexDir, uuidDir, sqlite, acc);
       sessions.push(session);
@@ -562,6 +578,6 @@ export function readCursor(root = defaultCursorRoot()) {
     sessions,
     compactionSummaries: [],
     redaction: { hits: acc.redactionHits, charsRemoved: acc.redactedChars },
-    stats: { unreadableSessions: acc.unreadableSessions, originatorCounts: acc.originatorCounts, backend: "sqlite" },
+    stats: { unreadableSessions: acc.unreadableSessions, originatorCounts: acc.originatorCounts, backend: "sqlite", discoveryErrors: acc.discoveryErrors },
   };
 }
