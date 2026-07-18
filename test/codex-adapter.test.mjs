@@ -370,15 +370,22 @@ test("apply_patch with zero parseable file headers falls back to a single pathle
 
 test("custom_tool_call_output: status drives isError (failed -> true, completed -> false)", () => {
   withRoot((root) => {
+    const failOutput = "boom — fatto ✅ è male";
+    const okOutput = "great — fatto ✅ è bene";
+    // Hard guard: same rationale as the function_call_output bytes test —
+    // ASCII-only fixtures can't distinguish `.length` from `Buffer.byteLength`,
+    // so this pins the fixtures to actually contain multi-byte chars.
+    assert.notEqual(failOutput.length, Buffer.byteLength(failOutput), "fixture must contain multi-byte chars so byte-unit semantics diverge");
+    assert.notEqual(okOutput.length, Buffer.byteLength(okOutput), "fixture must contain multi-byte chars so byte-unit semantics diverge");
     writeRollout(root, {
       lines: [
         rec("session_meta", { id: "sess-custom-status", cwd: "/Users/erin/proj", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
         rec("turn_context", { cwd: "/Users/erin/proj", model: "gpt-5.5" }, T(1)),
         rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "run two custom tools" }] }, T(2)),
         rec("response_item", { type: "custom_tool_call", call_id: "cfail", name: "some_custom_tool", input: "" }, T(3)),
-        rec("response_item", { type: "custom_tool_call_output", call_id: "cfail", status: "failed", output: "boom" }, T(4)),
+        rec("response_item", { type: "custom_tool_call_output", call_id: "cfail", status: "failed", output: failOutput }, T(4)),
         rec("response_item", { type: "custom_tool_call", call_id: "cok", name: "some_custom_tool", input: "" }, T(5)),
-        rec("response_item", { type: "custom_tool_call_output", call_id: "cok", status: "completed", output: "great" }, T(6)),
+        rec("response_item", { type: "custom_tool_call_output", call_id: "cok", status: "completed", output: okOutput }, T(6)),
         rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "done both" }] }, T(7)),
       ],
     });
@@ -391,6 +398,8 @@ test("custom_tool_call_output: status drives isError (failed -> true, completed 
     assert.ok(rOk, "expected a toolResult for cok");
     assert.equal(rFail.isError, true, "status: failed should be an error");
     assert.equal(rOk.isError, false, "status: completed should not be an error");
+    assert.equal(rFail.bytes, failOutput.length, "bytes is the UTF-16 code-unit length (.length), not Buffer.byteLength");
+    assert.equal(rOk.bytes, okOutput.length, "bytes is the UTF-16 code-unit length (.length), not Buffer.byteLength");
   });
 });
 
@@ -494,8 +503,16 @@ test("usage: two token_count events in one turn sum deltas; cacheRead from cache
 
 test("isError: Exit code 1 -> true, Exit code 0 -> false; output text absent from bundle, bytes correct", () => {
   withRoot((root) => {
-    const failOutput = "Exit code: 1\nWall time: 0.2 seconds\nOutput:\nboom SECRET_OUTPUT_TEXT_FAIL";
-    const okOutput = "Exit code: 0\nWall time: 0.1 seconds\nOutput:\nok SECRET_OUTPUT_TEXT_OK";
+    const failOutput = "Exit code: 1\nWall time: 0.2 seconds\nOutput:\nboom SECRET_OUTPUT_TEXT_FAIL — fatto ✅ è ok";
+    const okOutput = "Exit code: 0\nWall time: 0.1 seconds\nOutput:\nok SECRET_OUTPUT_TEXT_OK — fatto ✅ è ok";
+    // Hard guard: these fixtures must contain multi-byte UTF-8 characters so
+    // `.length` (UTF-16 code units) and `Buffer.byteLength` (UTF-8 bytes)
+    // actually diverge. Without this, the bytes assertions below pass under
+    // BOTH the old Buffer.byteLength code and the new .length code, and pin
+    // nothing. If someone edits these fixtures back to pure ASCII, this
+    // guard fails loudly instead of the test silently going toothless.
+    assert.notEqual(failOutput.length, Buffer.byteLength(failOutput), "fixture must contain multi-byte chars so byte-unit semantics diverge");
+    assert.notEqual(okOutput.length, Buffer.byteLength(okOutput), "fixture must contain multi-byte chars so byte-unit semantics diverge");
     writeRollout(root, {
       lines: [
         rec("session_meta", { id: "sess-err", cwd: "/Users/ivan/proj", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
