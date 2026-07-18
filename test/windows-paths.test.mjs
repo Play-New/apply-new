@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { readClaudeCode } from "../src/adapters/claude-code.mjs";
 import { readCodex } from "../src/adapters/codex.mjs";
 import { readPi } from "../src/adapters/pi.mjs";
+import { readKimi } from "../src/adapters/kimi.mjs";
 import { buildDigest } from "../src/digest.mjs";
 import { computeAgenticLiteracy } from "../src/agentic-literacy.mjs";
 
@@ -143,6 +144,43 @@ function parsePiFixture() {
 
 test("pi adapter normalises Windows cwd to POSIX (cwdRedacted, projectLabel)", () => {
   const parsed = parsePiFixture();
+  const s = parsed.sessions[0];
+  assert.ok(!s.cwdRedacted.includes("\\"), `cwdRedacted still has backslashes: ${s.cwdRedacted}`);
+  assert.ok(s.cwdRedacted.includes("⟨user⟩"), "username should still be redacted");
+  assert.match(s.projectLabel, /^project-[0-9a-f]{8}$/, `projectLabel not well-formed: ${s.projectLabel}`);
+});
+
+// ── kimi: same Windows-path contract, driven through the kimi adapter
+// instead of claude-code.mjs/codex.mjs/pi.mjs. kimi's cwd comes from
+// state.json's `workDir` field (mirrors test/kimi-adapter.test.mjs's fixture
+// shape) rather than a per-record cwd.
+const KIMI_CWD = "C:\\Users\\x\\proj";
+
+function parseKimiFixture() {
+  const root = mkdtempSync(join(tmpdir(), "apply-new-win-kimi-"));
+  try {
+    const sessionDir = join(root, "sessions", "wd_proj_win", "session_sess-win-kimi");
+    const agentDir = join(sessionDir, "agents", "main");
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(sessionDir, "state.json"), JSON.stringify({
+      createdAt: "2026-01-02T03:04:00.000Z",
+      updatedAt: "2026-01-02T03:04:00.000Z",
+      title: "ignored", isCustomTitle: false,
+      agents: { main: { type: "main", parentAgentId: null } },
+      custom: {}, workDir: KIMI_CWD, lastPrompt: "ignored",
+    }));
+    const lines = [
+      { type: "context.append_message", time: Date.parse("2026-01-02T03:04:06.000Z"), message: { role: "user", content: [{ type: "text", text: "build the agent route" }], toolCalls: [], origin: { kind: "user" } } },
+    ];
+    writeFileSync(join(agentDir, "wire.jsonl"), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+    return readKimi(join(root, "sessions"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("kimi adapter normalises Windows cwd to POSIX (cwdRedacted, projectLabel)", () => {
+  const parsed = parseKimiFixture();
   const s = parsed.sessions[0];
   assert.ok(!s.cwdRedacted.includes("\\"), `cwdRedacted still has backslashes: ${s.cwdRedacted}`);
   assert.ok(s.cwdRedacted.includes("⟨user⟩"), "username should still be redacted");

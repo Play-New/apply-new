@@ -10,6 +10,7 @@
 //   - cursor:      ~/.cursor/chats, opt-out (readCursor returns an EMPTY
 //                  bundle with stats.backend: null on Node < 22.5 — no
 //                  node:sqlite — so it just contributes zero sessions there)
+//   - kimi:        ~/.kimi-code/sessions, opt-out
 //
 // Both opencode backends (sqlite and JSON) live in src/adapters/opencode.mjs;
 // this file just decides *whether* to read each source at all and *which*
@@ -21,6 +22,7 @@ import { readOpencode, readOpencodeJson, defaultOpencodeRoot, mergeSources } fro
 import { readCodex, defaultCodexRoot } from "./adapters/codex.mjs";
 import { readPi, defaultPiRoot } from "./adapters/pi.mjs";
 import { readCursor, defaultCursorRoot } from "./adapters/cursor.mjs";
+import { readKimi, defaultKimiRoot } from "./adapters/kimi.mjs";
 
 export function readAllSources({ claudeRoot, sources }) {
   const bundles = [readClaudeCode(claudeRoot)];
@@ -53,6 +55,13 @@ export function readAllSources({ claudeRoot, sources }) {
   if (!cu.disabled) {
     const root = cu.root ?? defaultCursorRoot();
     const parsed = readCursor(root);
+    if (parsed.sessions.length) bundles.push(parsed);
+  }
+
+  const k = sources?.kimi ?? {};
+  if (!k.disabled) {
+    const root = k.root ?? defaultKimiRoot();
+    const parsed = readKimi(root);
     if (parsed.sessions.length) bundles.push(parsed);
   }
 

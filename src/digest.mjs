@@ -229,7 +229,8 @@ const DESIGN_RE = /design|ui\b|typograph|layout|figma|css|color|grid|font|spacin
 // bare `claude`, the REPL), `codex exec` (not `codex login`/`mcp`/`resume`),
 // `aider -m`/`--msg`/`--message[-file]` (not bare `aider` or `aider --yes`),
 // `cursor-agent -p`/`--print` (not `cursor-agent login`), `pi -p`/`--print`
-// (not bare `pi`, the REPL), and `opencode|crush|goose run`. LAUNCHER_FLAGS
+// (not bare `pi`, the REPL), `kimi -p`/`--prompt` (not bare `kimi`, its own
+// REPL), and `opencode|crush|goose run`. LAUNCHER_FLAGS
 // lets ordinary flags (with optional values, quoted or bare) sit between the
 // executable and the headless marker, so `claude --model opus -p "x"` still
 // counts. aider alone also skips POSITIONAL tokens (`aider app.py -m "fix"`
@@ -253,6 +254,7 @@ const AGENT_LAUNCHER_RE = new RegExp(
       `aider\\s+${LAUNCHER_TOKENS}(?:-m|--msg|--message(?:-file)?)`,
       `cursor-agent\\s+${LAUNCHER_FLAGS}(?:-p|--print)`,
       `pi\\s+${LAUNCHER_FLAGS}(?:-p|--print)`,
+      `kimi\\s+${LAUNCHER_FLAGS}(?:-p|--prompt)`,
     ].join("|") +
     ")(?=\\s|$)",
 );
