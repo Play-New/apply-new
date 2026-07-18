@@ -31,10 +31,10 @@ The tool reads every supported agent CLI it finds on your machine and folds them
 
 | | Reads from | Skip with | Capture |
 |---|---|---|---|
-| [![Claude Code](https://img.shields.io/badge/Claude_Code-555?logo=claude&logoColor=white)](https://claude.com/claude-code) | `~/.claude/projects` | always read (`--root` points it elsewhere) | full |
+| [![Claude Code](https://img.shields.io/badge/Claude_Code-555?logo=claudecode&logoColor=white)](https://claude.com/claude-code) | `~/.claude/projects` | always read (`--root` points it elsewhere) | full |
 | [![opencode](https://img.shields.io/badge/opencode-555?logo=opencode&logoColor=white)](https://opencode.ai) | `~/.local/share/opencode` (sqlite; JSON fallback via `--opencode-json`) | `--no-opencode` | structural |
 | [![Codex CLI](https://img.shields.io/badge/Codex_CLI-555)](https://github.com/openai/codex) | `~/.codex/sessions` | `--no-codex` | structural |
-| [![pi](https://img.shields.io/badge/pi-555)](https://pi.dev) | `~/.pi/agent/sessions` | `--no-pi` | structural |
+| [![pi](https://img.shields.io/badge/pi-555?logo=pi&logoColor=white)](https://pi.dev) | `~/.pi/agent/sessions` | `--no-pi` | structural |
 | [![cursor-agent](https://img.shields.io/badge/cursor--agent-555?logo=cursor&logoColor=white)](https://cursor.com/cli) | `~/.cursor/chats` (sqlite; needs Node 22.5+, otherwise read as empty and disclosed) | `--no-cursor` | structural |
 | ![kimi-code](https://img.shields.io/badge/kimi--code-555?logo=moonshotai&logoColor=white) | `~/.kimi-code/sessions` | `--no-kimi` | structural |
 
