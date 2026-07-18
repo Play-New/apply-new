@@ -185,6 +185,97 @@ test("framework filtering is per content block: a user message mixing a framewor
   });
 });
 
+test("AGENTS.md instructions dump is filtered like the other framework-injected forms: a whole message is dropped, text never surfaces, userMessages count unaffected", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      lines: [
+        rec("session_meta", { id: "sess-agentsmd", cwd: "/Users/mia/app", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/mia/app", model: "gpt-5.5" }, T(1)),
+        rec(
+          "response_item",
+          { type: "message", role: "user", content: [{ type: "input_text", text: "# AGENTS.md instructions for /Users/mia/app\n\n<INSTRUCTIONS>\nMARKER_AGENTSMD_TEXT\n</INSTRUCTIONS>" }] },
+          T(2),
+        ),
+        rec("response_item", { type: "message", role: "user", content: [{ type: "input_text", text: "real question here" }] }, T(3)),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "real answer here" }] }, T(4)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, `expected only the real user/assistant pair, got ${JSON.stringify(s.messages.map((m) => m.role))}`);
+    assert.equal(s.messages[0].role, "user");
+    assert.equal(s.messages[0].textRedacted.trim(), "real question here");
+
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("MARKER_AGENTSMD_TEXT"), "AGENTS.md instructions text leaked");
+
+    const digest = buildDigest(mergeSources(parsed));
+    assert.equal(digest.projects[0].userMessages, 1, "the AGENTS.md dump must not inflate the userMessages count");
+    assert.ok(
+      !digest.projects[0].promptSamples.some((p) => p.includes("MARKER_AGENTSMD_TEXT")),
+      "AGENTS.md text must not surface in promptSamples",
+    );
+  });
+});
+
+test("AGENTS.md filtering is per content block: mixing the dump with a real block in the same message keeps only the real block", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      lines: [
+        rec("session_meta", { id: "sess-agentsmd-mixed", cwd: "/Users/mia/app", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/mia/app", model: "gpt-5.5" }, T(1)),
+        rec(
+          "response_item",
+          {
+            type: "message",
+            role: "user",
+            content: [
+              { type: "input_text", text: "# AGENTS.md instructions for /Users/mia/app\n\n<INSTRUCTIONS>\nMARKER_AGENTSMD_MIXED_TEXT\n</INSTRUCTIONS>" },
+              { type: "input_text", text: "MARKER_MIXED_REAL_TEXT actual human question" },
+            ],
+          },
+          T(2),
+        ),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "answering the mixed message" }] }, T(3)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, `expected the mixed message to survive as one user turn, got ${JSON.stringify(s.messages.map((m) => m.role))}`);
+    assert.equal(s.messages[0].role, "user");
+    assert.ok(s.messages[0].textRedacted.includes("MARKER_MIXED_REAL_TEXT"), "the real block must survive");
+    assert.ok(!s.messages[0].textRedacted.includes("MARKER_AGENTSMD_MIXED_TEXT"), "the AGENTS.md-wrapped block must be dropped, not the whole message");
+
+    const bundleJson = JSON.stringify(parsed);
+    assert.ok(!bundleJson.includes("MARKER_AGENTSMD_MIXED_TEXT"), "AGENTS.md dump text leaked anywhere in the bundle");
+  });
+});
+
+test("guard: a real user message that merely mentions the AGENTS.md instructions phrase inline (not as its leading text) survives", () => {
+  withRoot((root) => {
+    writeRollout(root, {
+      lines: [
+        rec("session_meta", { id: "sess-agentsmd-mention", cwd: "/Users/mia/app", originator: "codex-tui", cli_version: "0.60.0", model_provider: "openai" }, T(0)),
+        rec("turn_context", { cwd: "/Users/mia/app", model: "gpt-5.5" }, T(1)),
+        rec(
+          "response_item",
+          { type: "message", role: "user", content: [{ type: "input_text", text: 'I noticed the "# AGENTS.md instructions for" dump earlier, can you explain why it appears?' }] },
+          T(2),
+        ),
+        rec("response_item", { type: "message", role: "assistant", content: [{ type: "output_text", text: "sure, that's Codex re-injecting your repo's AGENTS.md" }] }, T(3)),
+      ],
+    });
+
+    const parsed = readCodex(root);
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, "a message that merely mentions the AGENTS.md prefix inline (not as its leading text) must survive");
+    assert.equal(s.messages[0].role, "user");
+    assert.ok(s.messages[0].textRedacted.includes("AGENTS.md instructions for"));
+  });
+});
+
 test("shell array command is joined with spaces; secret-looking tokens in cmd are redacted", () => {
   withRoot((root) => {
     writeRollout(root, {

@@ -27,12 +27,19 @@
 // messages are then merged into ONE session.messages array and sorted by
 // record time — "the session dir IS the session", per the subagent-rollup
 // design; unlike opencode there is no cross-session re-parenting to do,
-// just an interleave. We deliberately do NOT filter framework-injected user
-// turns the way codex does for <environment_context>: kimi's own injected
-// reminders (context.append_message with origin.kind "injection", e.g. a
-// stale-todo-list nudge) arrive with role "user" exactly like a human turn
-// and are counted as one — not observed to be a problem in real sessions on
-// this machine, and not asked for; revisit if it distorts turn counts.
+// just an interleave. FRAMEWORK-INJECTED USER TURNS ARE NOW FILTERED, same
+// per-block discipline codex uses for <environment_context>: kimi's own
+// injected reminders (context.append_message with role "user", origin.kind
+// "injection", e.g. a stale-TodoList nudge) arrive wrapped ENTIRELY in
+// <system-reminder>...</system-reminder>. An earlier revision of this
+// comment documented NOT filtering these — reversed here by observed harm: a
+// real end-to-end test on this machine showed reminder text surfacing in
+// promptSamples and inflating user-message signal counts as if a human had
+// typed it. A block survives only when its trimmed text is not fully
+// wrapped in the tag; a message where every block is wrapped (or which has
+// none left) is skipped ENTIRELY — no emit, no turn flush, no turn reopen —
+// so a reminder landing mid-turn can never split or corrupt the surrounding
+// loop-event turn synthesis (see extractUserMessageText below).
 // `turn.prompt` and `context.append_message` both record the user's prompt
 // (the former is the raw input event, the latter the canonical message the
 // context keeps); processing both would double-count user messages, so only
@@ -153,6 +160,38 @@ function extractMessageText(content) {
     if (b && typeof b === "object" && b.type === "text") text += (b.text || "") + "\n";
   }
   return text;
+}
+
+// Framework-injected content: kimi re-sends TodoList/other nudges as a
+// synthetic role-"user" block wrapped ENTIRELY in <system-reminder> (checked
+// per content block, mirroring codex's <environment_context>/<permissions
+// instructions> filter — see extractUserMessageText below). Trimmed text
+// must both start with the open tag and end with the close tag, so a real
+// block that merely mentions <system-reminder> inline is never dropped.
+const FRAMEWORK_TAGS = [{ open: "<system-reminder>", close: "</system-reminder>" }];
+function isFrameworkWrapped(trimmed) {
+  return FRAMEWORK_TAGS.some((t) => trimmed.startsWith(t.open) && trimmed.endsWith(t.close));
+}
+
+// role "user" context.append_message content, filtered per block: a block
+// that survives contributes to the message exactly like extractMessageText
+// does; one that's framework-wrapped is dropped without contributing.
+// Returns null when no block survives (all wrapped, or there were none) so
+// the caller can skip the message entirely — no emit, no turn flush/reopen,
+// so an all-filtered message mid-turn never disturbs the open loop-event
+// turn (see the header's "turn synthesis safety" note).
+function extractUserMessageText(content) {
+  if (!Array.isArray(content)) return null;
+  let text = "";
+  let survived = 0;
+  for (const b of content) {
+    if (!b || typeof b !== "object" || b.type !== "text") continue;
+    const blockText = b.text || "";
+    if (isFrameworkWrapped(blockText.trim())) continue;
+    survived++;
+    text += blockText + "\n";
+  }
+  return survived > 0 ? text : null;
 }
 
 // tool.call -> toolUse. display is kimi's own normalised view of the call
@@ -312,7 +351,8 @@ function processAgentFile(session, sessionId, agentId, records) {
       case "context.append_message": {
         const message = r.message && typeof r.message === "object" ? r.message : {};
         if (message.role === "user") {
-          const text = extractMessageText(message.content);
+          const text = extractUserMessageText(message.content);
+          if (text === null) break; // fully framework-injected reminder: skip entirely, no turn side effects
           flushTurn();
           emit("user", ts, text);
           openTurn();

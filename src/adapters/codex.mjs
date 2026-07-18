@@ -28,6 +28,10 @@
 //     has none left after filtering) is dropped entirely — counting it as a
 //     real turn would inflate the turn count and pollute textRedacted with
 //     boilerplate.
+//   - role "user" content blocks whose trimmed text STARTS WITH "# AGENTS.md
+//     instructions for ": Codex also re-injects the repo's AGENTS.md as a
+//     synthetic user block (an <INSTRUCTIONS> dump), same per-block filtering
+//     discipline as the tag-wrapped forms above.
 //
 // apply_patch is Codex's diff-application tool and its `input` is the raw
 // unified-diff text — full file contents can ride along in an Add File hunk.
@@ -172,8 +176,13 @@ const FRAMEWORK_TAGS = [
   { open: "<environment_context>", close: "</environment_context>" },
   { open: "<permissions instructions>", close: "</permissions instructions>" },
 ];
+// AGENTS.md re-injection has no closing tag to pair against (it starts with a
+// markdown heading, not an XML-ish wrapper) — a leading-prefix check on the
+// WHOLE trimmed block is the only signal available, same "whole block or
+// nothing" posture as the tag-wrapped forms.
+const AGENTS_MD_PREFIX = "# AGENTS.md instructions for ";
 function isFrameworkWrapped(trimmed) {
-  return FRAMEWORK_TAGS.some((t) => trimmed.startsWith(t.open) && trimmed.endsWith(t.close));
+  return FRAMEWORK_TAGS.some((t) => trimmed.startsWith(t.open) && trimmed.endsWith(t.close)) || trimmed.startsWith(AGENTS_MD_PREFIX);
 }
 
 // role "user" content, filtered per block: Codex can mix a real human block
