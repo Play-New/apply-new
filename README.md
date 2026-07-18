@@ -25,7 +25,7 @@ The slash command asks for four contact fields (name, email, city, status), read
 node bin/apply-new.mjs submit --yes
 ```
 
-> Today the tool reads Claude Code, opencode, Codex CLI (`~/.codex/sessions`; skip it with `--no-codex`), and pi (`~/.pi/agent/sessions`; skip it with `--no-pi`) logs. Gemini CLI and ChatGPT / Claude.ai exports are on the roadmap.
+> Today the tool reads Claude Code, opencode, Codex CLI (`~/.codex/sessions`; skip it with `--no-codex`), pi (`~/.pi/agent/sessions`; skip it with `--no-pi`), and cursor-agent (`~/.cursor/chats`; skip it with `--no-cursor`) logs. Gemini CLI and ChatGPT / Claude.ai exports are on the roadmap.
 
 ## What we look at
 
@@ -97,7 +97,7 @@ npm test
 
 PRs and issues are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the rules
 that make this repo unusual (schema discipline, privacy boundaries, the
-[ADR-001](docs/adr/001-just-a-report.md) frame, the current four-source policy).
+[ADR-001](docs/adr/001-just-a-report.md) frame, the current five-source policy).
 Security issues go privately via [SECURITY.md](SECURITY.md), never as public issues.
 
 ## License

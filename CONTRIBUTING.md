@@ -55,12 +55,12 @@ The profile is read by people making real decisions, so its numbers carry weight
 
 ## Log sources
 
-Current policy: **Claude Code (primary), opencode (open-source fallback), codex, and
-pi** — four sources done properly before more are added; codex and pi both landed
-via issue #15. A new source needs a provenance and `capture_level` story, not just a
-parser: open an issue to discuss it **before** writing an adapter PR. The adapter
-seam (`src/adapters/`, shared session model) is built for expansion, so the
-conversation is about trust, not plumbing.
+Current policy: **Claude Code (primary), opencode (open-source fallback), codex, pi,
+and cursor** — five sources done properly before more are added; codex, pi, and
+cursor all landed via issue #15. A new source needs a provenance and `capture_level`
+story, not just a parser: open an issue to discuss it **before** writing an adapter
+PR. The adapter seam (`src/adapters/`, shared session model) is built for expansion,
+so the conversation is about trust, not plumbing.
 
 ## Process
 

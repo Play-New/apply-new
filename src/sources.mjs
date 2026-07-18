@@ -7,6 +7,9 @@
 //   - opencode:    ~/.local/share/opencode/{storage,opencode.db}, opt-out
 //   - codex:       ~/.codex/sessions, opt-out
 //   - pi:          ~/.pi/agent/sessions, opt-out
+//   - cursor:      ~/.cursor/chats, opt-out (readCursor returns an EMPTY
+//                  bundle with stats.backend: null on Node < 22.5 — no
+//                  node:sqlite — so it just contributes zero sessions there)
 //
 // Both opencode backends (sqlite and JSON) live in src/adapters/opencode.mjs;
 // this file just decides *whether* to read each source at all and *which*
@@ -17,6 +20,7 @@ import { readClaudeCode } from "./adapters/claude-code.mjs";
 import { readOpencode, readOpencodeJson, defaultOpencodeRoot, mergeSources } from "./adapters/opencode.mjs";
 import { readCodex, defaultCodexRoot } from "./adapters/codex.mjs";
 import { readPi, defaultPiRoot } from "./adapters/pi.mjs";
+import { readCursor, defaultCursorRoot } from "./adapters/cursor.mjs";
 
 export function readAllSources({ claudeRoot, sources }) {
   const bundles = [readClaudeCode(claudeRoot)];
@@ -42,6 +46,13 @@ export function readAllSources({ claudeRoot, sources }) {
   if (!pi.disabled) {
     const root = pi.root ?? defaultPiRoot();
     const parsed = readPi(root);
+    if (parsed.sessions.length) bundles.push(parsed);
+  }
+
+  const cu = sources?.cursor ?? {};
+  if (!cu.disabled) {
+    const root = cu.root ?? defaultCursorRoot();
+    const parsed = readCursor(root);
     if (parsed.sessions.length) bundles.push(parsed);
   }
 
