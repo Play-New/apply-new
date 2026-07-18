@@ -96,6 +96,23 @@ test("summarizeSources: a cursor session reports structural capture in its own g
   assert.equal(claudeEntry.captureLevel, "full", "claude-code must stay full capture, not get pulled down by cursor");
 });
 
+test("summarizeSources: a kimi session reports structural capture in its own group", () => {
+  const parsed = {
+    sessions: [
+      sess("claude-code", "a", "2026-04-03T10:00:00Z", "2026-04-03T11:00:00Z"),
+      factorySess("kimi", "app"),
+    ],
+  };
+  const s = summarizeSources(parsed);
+  assert.equal(s.length, 2, `expected claude-code and kimi as separate groups, got ${JSON.stringify(s)}`);
+  const kimiEntry = s.find((e) => e.source === "kimi");
+  assert.ok(kimiEntry, "kimi must have its own group in the sources block");
+  assert.equal(kimiEntry.captureLevel, "structural");
+  assert.equal(kimiEntry.sessions, 1);
+  const claudeEntry = s.find((e) => e.source === "claude-code");
+  assert.equal(claudeEntry.captureLevel, "full", "claude-code must stay full capture, not get pulled down by kimi");
+});
+
 const assembleArgs = (extra = {}) => ({
   contact: { name: "X", email: "x@y.z", city: "C", status: "freelance" },
   projects: [{ repo: "app", selected: true, type: ["feature-work"], from: "2026-05", to: "2026-05", sessions: 3, userMessages: 9, tech: [], landing: {}, researchToMutation: null, delegation: 0, topAreas: {} }],
@@ -199,6 +216,21 @@ test("forensics: cursor sessions are excluded too (FULL_CAPTURE_SOURCES untouche
   const orphans = {
     ...sess("cursor", "cu", "2026-05-01T10:00:00Z"),
     chain: Array.from({ length: 10 }, (_, i) => ({ uuid: `cu-${i}`, parentUuid: `missing-${i}`, ts: "2026-05-01T10:00:00Z" })),
+  };
+  const clean = sess("claude-code", "cc", "2026-05-01T10:00:00Z");
+  const f = computeForensics({ sessions: [clean, orphans], files: [] });
+  const uuidCheck = f.checks.find((c) => c.id === "uuid_chain");
+  assert.equal(uuidCheck.status, "pass", uuidCheck.detail);
+});
+
+test("forensics: kimi sessions are excluded too (FULL_CAPTURE_SOURCES untouched by #15)", () => {
+  // Same forgery-shaped fixture as the opencode/codex/pi/cursor cases above,
+  // tagged kimi instead: an orphaned chain would flag uuid_chain if kimi were
+  // scanned. Scoped out, the check stays clean — proving landing kimi didn't
+  // widen FULL_CAPTURE_SOURCES to include it.
+  const orphans = {
+    ...sess("kimi", "ki", "2026-05-01T10:00:00Z"),
+    chain: Array.from({ length: 10 }, (_, i) => ({ uuid: `ki-${i}`, parentUuid: `missing-${i}`, ts: "2026-05-01T10:00:00Z" })),
   };
   const clean = sess("claude-code", "cc", "2026-05-01T10:00:00Z");
   const f = computeForensics({ sessions: [clean, orphans], files: [] });
