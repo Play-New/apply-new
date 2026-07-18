@@ -117,10 +117,17 @@ export function defaultCursorRoot() {
 // ── Tool vocabulary: cursor → canonical (Claude Code) names ─────────────────
 // Cursor's own toolName strings are already close to canonical (Read, Write,
 // Grep, Glob, TodoWrite all pass through fallbackToolName unchanged) — only
-// "Shell" needs an explicit rewrite to "Bash". Anything not in this table
-// (including tools not yet observed) falls through to the same shared
-// fallback every other adapter uses.
-const TOOL_MAP = { Shell: "Bash" };
+// "Shell" needs an explicit rewrite to "Bash". "StrReplace" (cursor's
+// string-replace edit tool, grep-confirmed in a real session's blob DAG) is
+// mapped to "Edit" so it lands in digest.mjs's MUTATION set — unmapped it
+// fell through fallbackToolName unchanged and cursor sessions editing files
+// exclusively via StrReplace read as zero-mutation and got misclassified.
+// Its path arg lives under the already-covered `path` key (confirmed against
+// the real blob: keys are old_string/new_string/path — old_string/new_string
+// are never read by buildToolUse's known-key list, see below). Anything not
+// in this table (including tools not yet observed) falls through to the same
+// shared fallback every other adapter uses.
+const TOOL_MAP = { Shell: "Bash", StrReplace: "Edit" };
 function mapTool(name) {
   if (!name) return name;
   if (TOOL_MAP[name]) return TOOL_MAP[name];

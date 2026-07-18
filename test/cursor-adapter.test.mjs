@@ -281,7 +281,7 @@ test("reasoning: empty text + signature length lens; signature never stored; mod
 
 // ── 5. TOOL_MAP + compound toolCallId ──
 
-test("tool mapping: Shell->Bash cmd, Read path, Grep pattern->q, Write contents absent; compound toolCallId (embedded newline) links tool-result", { skip: sqlite ? false : "node:sqlite unavailable" }, () => {
+test("tool mapping: Shell->Bash cmd, Read path, Grep pattern->q, Write contents absent, StrReplace->Edit path (old_string/new_string absent); compound toolCallId (embedded newline) links tool-result", { skip: sqlite ? false : "node:sqlite unavailable" }, () => {
   withRoot((root) => {
     const compoundId = "call-f48bc8fc-6593-4fcb-9857-d5e37b47a484-0\nfc_5a551111-25bd-9170-9f2a-a9c7a65adde4_0";
     makeCursorSession(root, {
@@ -296,6 +296,9 @@ test("tool mapping: Shell->Bash cmd, Read path, Grep pattern->q, Write contents 
             { id: "call-3", name: "Grep", args: { pattern: "TODO", glob: "*.ts" } },
             { id: "call-4", name: "Write", args: { path: "/repo/proj/out.txt", contents: "SECRET_FILE_CONTENTS_BODY" } },
             { id: "call-5", name: "Read", args: { path: "/Users/leakname/proj/AGENTS.md" } },
+            // Real observed arg shape (grep-confirmed against a live ~/.cursor/chats
+            // session): keys are exactly old_string/new_string/path.
+            { id: "call-6", name: "StrReplace", args: { path: "/repo/proj/src/app.py", old_string: "SECRET_OLD_CODE_BODY", new_string: "SECRET_NEW_CODE_BODY" } },
           ],
         }),
         toolMsg(compoundId, { result: "ran" }),
@@ -315,6 +318,8 @@ test("tool mapping: Shell->Bash cmd, Read path, Grep pattern->q, Write contents 
     assert.equal(byId["call-4"].name, "Write");
     assert.equal(byId["call-4"].path, "/repo/proj/out.txt");
     assert.equal(byId["call-5"].path, "/Users/⟨user⟩/proj/AGENTS.md", "a toolUse path under /Users/<name> must be redacted like any other path");
+    assert.equal(byId["call-6"].name, "Edit", "StrReplace must map to Edit so digest.mjs's MUTATION set counts it");
+    assert.equal(byId["call-6"].path, "/repo/proj/src/app.py");
 
     const toolResults = s.messages.flatMap((m) => m.toolResults);
     assert.equal(toolResults.length, 1);
@@ -323,6 +328,8 @@ test("tool mapping: Shell->Bash cmd, Read path, Grep pattern->q, Write contents 
     const dump = JSON.stringify(parsed);
     assert.ok(!dump.includes("SECRET_FILE_CONTENTS_BODY"), "Write's contents must never be stored");
     assert.ok(!dump.includes("leakname"), "username in a toolUse path must be redacted");
+    assert.ok(!dump.includes("SECRET_OLD_CODE_BODY"), "StrReplace's old_string must never be stored");
+    assert.ok(!dump.includes("SECRET_NEW_CODE_BODY"), "StrReplace's new_string must never be stored");
   });
 });
 
