@@ -191,15 +191,15 @@ test("root walk: sessionId/cwdRaw from meta+root; messages emitted in field-1 or
   withRoot((root) => {
     makeCursorSession(root, {
       agentId: "sess-order-1",
-      cwd: "/Users/rinaldofesta/Projects/Work/PlayNew/filopea-poc",
+      cwd: "/Users/synthuser/Projects/Work/Acme/sample-poc",
       blobs: [systemMsg(), userQueryMsg("first", { timestamp: T1 }), assistantMsg({ text: "ok" }), userQueryMsg("second", { timestamp: T2 })],
     });
     const parsed = readCursor(root);
     assert.equal(parsed.sessions.length, 1);
     const s = parsed.sessions[0];
     assert.equal(s.sessionId, "sess-order-1");
-    assert.equal(s.cwdRaw, "/Users/rinaldofesta/Projects/Work/PlayNew/filopea-poc");
-    assert.ok(!s.cwdRedacted.includes("rinaldofesta"));
+    assert.equal(s.cwdRaw, "/Users/synthuser/Projects/Work/Acme/sample-poc");
+    assert.ok(!s.cwdRedacted.includes("synthuser"));
     // system dropped, 3 messages survive in order
     assert.equal(s.messages.length, 3);
     assert.deepEqual(s.messages.map((m) => m.role), ["user", "assistant", "user"]);
@@ -276,6 +276,23 @@ test("reasoning: empty text + signature length lens; signature never stored; mod
     assert.deepEqual([...s.models], ["cursor-grok-4.5-high-fast"]);
     const dump = JSON.stringify(parsed);
     assert.ok(!dump.includes("SECRET_SIGNATURE_BLOB_XYZ"), "signature text leaked into the bundle");
+  });
+
+  // Defensive redaction, parity with pi.mjs's local-model-id precedent: cursor's
+  // modelName is a hosted gateway string today, but a hypothetical path-shaped
+  // one must not leak a username through session.models or the message model field.
+  withRoot((root) => {
+    makeCursorSession(root, {
+      agentId: "sess-model-path",
+      blobs: [userQueryMsg("think", { timestamp: T1 }), assistantMsg({ reasoningText: "", modelName: "/Users/synthleak/local-models/cursor-custom", text: "answer" })],
+    });
+    const parsed = readCursor(root);
+    const s = parsed.sessions[0];
+    const asst = s.messages.find((m) => m.role === "assistant");
+    assert.ok(![...s.models].some((mo) => mo.includes("synthleak")), "path-shaped modelName username must not survive in session.models");
+    assert.ok(!asst.model.includes("synthleak"), "path-shaped modelName username must not survive in the message model field");
+    const dump = JSON.stringify(parsed);
+    assert.ok(!dump.includes("synthleak"), "path-shaped modelName username leaked into the bundle");
   });
 });
 
@@ -468,7 +485,42 @@ test("PRIVACY: meta.name (the conversation title) never appears anywhere in the 
   });
 });
 
-// ── 12. lens smoke-run ──
+// ── 12. array-content full-drop (review follow-up): every text block framework-wrapped/empty, none has <user_query> ──
+
+test("classification: a user message whose content array has no <user_query> in any block (all framework-wrapped/empty) is dropped entirely, not emitted, and does not open ts inheritance", { skip: sqlite ? false : "node:sqlite unavailable" }, () => {
+  withRoot((root) => {
+    makeCursorSession(root, {
+      agentId: "sess-array-drop",
+      blobs: [
+        userQueryMsg("first", { timestamp: T1 }),
+        {
+          role: "user",
+          content: [
+            // Carries a LATER timestamp (T2) than the real query above, so if
+            // the drop check ever moved below the currentTs assignment this
+            // would leak forward and the next assistant message's ts would
+            // wrongly become T2 instead of inheriting T1.
+            { type: "text", text: `<timestamp>${T2}</timestamp>\n<user_info>\nOS Version: darwin\n</user_info>` },
+            { type: "text", text: "" },
+          ],
+          providerOptions: { cursor: { requestId: "req-wrapper-only" } },
+        },
+        assistantMsg({ text: "reply" }),
+      ],
+    });
+    const parsed = readCursor(root);
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2, "the wrapper-only array message must be dropped entirely, not emitted");
+    assert.deepEqual(s.messages.map((m) => m.role), ["user", "assistant"]);
+    const [userMsg, asstMsg] = s.messages;
+    assert.equal(asstMsg.ts, userMsg.ts, "dropped message must not advance currentTs: assistant must inherit T1, not the dropped message's T2");
+    assert.equal(userMsg.ts, new Date(Date.parse("Jul 18, 2026, 6:16 AM UTC")).toISOString());
+    const dump = JSON.stringify(parsed);
+    assert.ok(!dump.includes("OS Version: darwin"), "framework-wrapper text from the dropped message must not survive in the bundle");
+  });
+});
+
+// ── 13. lens smoke-run ──
 
 test("smoke: bundle flows through buildDigest + computeAgenticLiteracy + computeIntensity without throwing, session is counted", { skip: sqlite ? false : "node:sqlite unavailable" }, () => {
   withRoot((root) => {

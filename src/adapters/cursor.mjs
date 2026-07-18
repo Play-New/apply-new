@@ -35,7 +35,12 @@
 //      whatever is there) into a throwaway mkdtemp() dir first and only ever
 //      opens THAT copy, read-only, cleaning it up in a finally. This is the
 //      one adapter in the repo where "copy before read" is load-bearing, not
-//      just tidy.
+//      just tidy. The residual risk a three-file, non-atomic copy can never
+//      fully close is a torn main-db copy (a checkpoint mid-copy leaves us
+//      with half-old/half-new pages); when that happens the copy degrades
+//      into the existing unreadableSessions/skip paths — DatabaseSync fails
+//      to open it outright, or per-message JSON.parse fails and the message
+//      is counted in files[].malformed — never a silent bad read.
 //
 // Privacy / exclusions, all deliberate:
 //   - meta.name (the model-generated conversation title) is NEVER stored —
@@ -307,11 +312,20 @@ function readSession(dbPath, hexDir, uuidDir, sqlite, acc) {
   const tmpDir = mkdtempSync(join(tmpdir(), "cursor-"));
   try {
     const copiedDb = join(tmpDir, "store.db");
-    copyFileSync(dbPath, copiedDb);
+    // Copy -wal/-shm BEFORE the main store.db, not after: a live writer can
+    // checkpoint (fold the WAL into the main file) between the two copies no
+    // matter which order we pick, so this can never be made fully atomic —
+    // but the two orderings fail differently. wal/shm first means the worst
+    // case is a WAL copy that's stale relative to the main file we copy next,
+    // yet still self-consistent (sqlite just re-applies frames the main copy
+    // may already reflect). Main first risks the opposite: a main file that
+    // gets checkpointed out from under a wal/shm copy taken afterward, which
+    // is a torn pairing, not merely a stale one.
     for (const suffix of ["-wal", "-shm"]) {
       const src = dbPath + suffix;
       if (existsSync(src)) copyFileSync(src, copiedDb + suffix);
     }
+    copyFileSync(dbPath, copiedDb);
 
     const db = new sqlite.DatabaseSync(copiedDb, { readOnly: true });
     try {
@@ -428,7 +442,14 @@ function readSession(dbPath, hexDir, uuidDir, sqlite, acc) {
               thinkingChars += (part.text || "").length;
               signatureChars += (part.signature || "").length;
               const m = part.providerOptions && part.providerOptions.cursor && part.providerOptions.cursor.modelName;
-              if (m) model = m;
+              // Defensive redaction, same precedent as pi.mjs's model_change
+              // handling: pi's local-model ids turned out to carry
+              // filesystem paths. Cursor's modelName is a hosted gateway
+              // string today ("cursor-grok-4.5-high-fast"), but redactText
+              // is identity on strings with no path/secret shape, so this
+              // costs nothing and closes the same class of leak if that
+              // ever changes.
+              if (m) model = redactText(String(m));
             } else if (part.type === "text") {
               text += (part.text || "") + "\n";
             } else if (part.type === "tool-call") {
