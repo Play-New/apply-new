@@ -2,13 +2,33 @@
 // --opencode-json do what PRIVACY.md promises. Both are the privacy escape
 // hatches and the backend selector — getting them wrong is a silent feature
 // break, so each is exercised end-to-end against a synthetic storage tree.
+//
+// Every fixture's `sources` object explicitly disables every source not under
+// test (including cursor, once registered below) — this machine (and any
+// contributor's) can have real ~/.claude, ~/.codex, ~/.pi, and ~/.cursor data
+// on disk, and a test that forgets to opt one of them out would silently pick
+// up whatever real logs happen to exist there.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { readAllSources } from "../src/sources.mjs";
+
+const require = createRequire(import.meta.url);
+// node:sqlite is experimental and only present on Node >= 22.5 — same gate as
+// test/opencode-db.test.mjs and test/cursor-adapter.test.mjs. The cursor
+// fixture below needs it to build a store.db; when unavailable, the whole
+// cursor merge-case block skips cleanly so the Node-20 CI leg stays green.
+let sqlite = null;
+try {
+  sqlite = require("node:sqlite");
+} catch {
+  /* Node < 22.5 */
+}
 
 // Build a minimal codex sessions tree on disk: one rollout file (= one
 // session) with a session_meta line + one user + one assistant response_item,
@@ -51,6 +71,72 @@ function makePiSessions() {
   return root;
 }
 
+// ── Minimal hand-rolled protobuf ENCODER (mirrors what pbFields in
+// src/adapters/cursor.mjs reads), trimmed to just what a root blob needs:
+// field 1 (repeated message hashes) and field 9 (cwd, as a file:// URI).
+// test/cursor-adapter.test.mjs has a fuller version of this encoder plus its
+// own makeCursorSession helper, but neither is exported, so this is an
+// independent, deliberately minimal, inline copy.
+function encodeVarint(n) {
+  let v = typeof n === "bigint" ? n : BigInt(n);
+  const bytes = [];
+  do {
+    let b = Number(v & 0x7fn);
+    v >>= 7n;
+    if (v > 0n) b |= 0x80;
+    bytes.push(b);
+  } while (v > 0n);
+  return Buffer.from(bytes);
+}
+function encodeTag(fieldNo, wireType) {
+  return encodeVarint((fieldNo << 3) | wireType);
+}
+function fieldBytes(fieldNo, buf) {
+  return Buffer.concat([encodeTag(fieldNo, 2), encodeVarint(buf.length), buf]);
+}
+function fieldString(fieldNo, str) {
+  return fieldBytes(fieldNo, Buffer.from(str, "utf8"));
+}
+
+// Build a minimal cursor chats tree on disk: <root>/<hexDir>/<uuidDir>/store.db
+// with the real two-table schema (meta, blobs), one user-query message blob,
+// a root blob referencing it via field 1 + a cwd via field 9, and a meta row
+// pointing at that root. Mirrors test/cursor-adapter.test.mjs's
+// makeCursorSession but trimmed to the minimum readAllSources needs to prove
+// a session merged in. Requires node:sqlite — only call behind the sqlite gate.
+function makeCursorSessions() {
+  const root = mkdtempSync(join(tmpdir(), "cu-"));
+  const hexDir = "abc123hexdir00000000000000000000";
+  const uuidDir = "11111111-1111-1111-1111-111111111111";
+  const dir = join(root, hexDir, uuidDir);
+  mkdirSync(dir, { recursive: true });
+  const dbPath = join(dir, "store.db");
+  const db = new sqlite.DatabaseSync(dbPath);
+  db.exec(`
+    CREATE TABLE meta (key TEXT, value TEXT);
+    CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB);
+  `);
+  const insBlob = db.prepare("INSERT INTO blobs (id, data) VALUES (?, ?)");
+
+  const userMsg = {
+    role: "user",
+    content: [{ type: "text", text: "<timestamp>Saturday, Jul 18, 2026, 6:16 AM (UTC)</timestamp>\n<user_query>\nhello\n</user_query>" }],
+  };
+  const msgData = Buffer.from(JSON.stringify(userMsg), "utf8");
+  const msgHash = createHash("sha256").update(msgData).digest();
+  insBlob.run(msgHash.toString("hex"), msgData);
+
+  const rootBuf = Buffer.concat([fieldBytes(1, msgHash), fieldString(9, "file:///Users/dee/proj")]);
+  const rootId = createHash("sha256").update(rootBuf).digest("hex");
+  insBlob.run(rootId, rootBuf);
+
+  const metaObj = { agentId: "cu-one", latestRootBlobId: rootId, name: "ignored", createdAt: Date.parse("2026-01-02T03:04:05.000Z") };
+  const metaHex = Buffer.from(JSON.stringify(metaObj), "utf8").toString("hex");
+  db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run("0", metaHex);
+  db.close();
+  return root;
+}
+
 // Build a minimal opencode JSON storage tree on disk.
 function makeOpencodeStorage() {
   const root = join(mkdtempSync(join(tmpdir(), "oc-")), "storage");
@@ -82,7 +168,7 @@ test("--no-opencode produces a claude-code-only bundle (privacy escape hatch)", 
       claudeRoot,
       // codex explicitly disabled so this doesn't pick up whatever real
       // codex data happens to exist on the machine running the suite.
-      sources: { opencode: { root: ocRoot, disabled: true, json: false }, codex: { disabled: true }, pi: { disabled: true } },
+      sources: { opencode: { root: ocRoot, disabled: true, json: false }, codex: { disabled: true }, pi: { disabled: true }, cursor: { disabled: true } },
     });
     // The opencode storage tree on disk has 1 session; with --no-opencode it
     // must NOT appear in the bundle.
@@ -99,7 +185,7 @@ test("without --no-opencode, opencode sessions are included in the bundle", () =
   try {
     const parsed = readAllSources({
       claudeRoot,
-      sources: { opencode: { root: ocRoot, disabled: false, json: false }, codex: { disabled: true }, pi: { disabled: true } },
+      sources: { opencode: { root: ocRoot, disabled: false, json: false }, codex: { disabled: true }, pi: { disabled: true }, cursor: { disabled: true } },
     });
     assert.equal(parsed.sessions.length, 1, `expected 1 session, got ${parsed.sessions.length}`);
     assert.equal(parsed.sessions[0].sessionId, "ses_one");
@@ -118,7 +204,7 @@ test("--no-opencode=true takes precedence over a present opencode root", () => {
   try {
     const parsed = readAllSources({
       claudeRoot,
-      sources: { opencode: { root: ocRoot, disabled: true, json: false }, codex: { disabled: true }, pi: { disabled: true } },
+      sources: { opencode: { root: ocRoot, disabled: true, json: false }, codex: { disabled: true }, pi: { disabled: true }, cursor: { disabled: true } },
     });
     for (const s of parsed.sessions) {
       assert.notEqual(s.source, "opencode", `opencode session leaked despite noOpencode=true: ${s.sessionId}`);
@@ -149,7 +235,7 @@ test("sources.opencode.root: null falls back to defaultOpencodeRoot() (not silen
     const parsed = readAllSources({
       claudeRoot,
       // root: null <-- this is what the bin actually passes when --opencode-root is absent
-      sources: { opencode: { root: null, disabled: false, json: false }, codex: { disabled: true }, pi: { disabled: true } },
+      sources: { opencode: { root: null, disabled: false, json: false }, codex: { disabled: true }, pi: { disabled: true }, cursor: { disabled: true } },
     });
     assert.equal(parsed.sessions.length, 1, `expected root:null to fall back to defaultOpencodeRoot() and find the on-disk storage; got ${parsed.sessions.length} sessions`);
     assert.equal(parsed.sessions[0].source, "opencode");
@@ -169,7 +255,7 @@ test("without --no-codex, codex sessions are included in the bundle", () => {
       claudeRoot,
       // opencode explicitly disabled so this doesn't pick up whatever real
       // opencode data happens to exist on the machine running the suite.
-      sources: { opencode: { disabled: true }, codex: { root: cxRoot, disabled: false }, pi: { disabled: true } },
+      sources: { opencode: { disabled: true }, codex: { root: cxRoot, disabled: false }, pi: { disabled: true }, cursor: { disabled: true } },
     });
     assert.equal(parsed.sessions.length, 1, `expected 1 session, got ${parsed.sessions.length}`);
     assert.equal(parsed.sessions[0].sessionId, "cx-one");
@@ -186,7 +272,7 @@ test("--no-codex produces a claude-code-only bundle (privacy escape hatch)", () 
   try {
     const parsed = readAllSources({
       claudeRoot,
-      sources: { opencode: { disabled: true }, codex: { root: cxRoot, disabled: true }, pi: { disabled: true } },
+      sources: { opencode: { disabled: true }, codex: { root: cxRoot, disabled: true }, pi: { disabled: true }, cursor: { disabled: true } },
     });
     // The codex sessions tree on disk has 1 session; with --no-codex it must
     // NOT appear in the bundle.
@@ -207,10 +293,10 @@ test("absent codex source key or an empty codex root leaves the claude-code-only
   const prevHome = process.env.CODEX_HOME;
   process.env.CODEX_HOME = mkdtempSync(join(tmpdir(), "cx-home-"));
   try {
-    const noCodexKey = readAllSources({ claudeRoot, sources: { opencode: { disabled: true }, pi: { disabled: true } } }); // no sources.codex at all
+    const noCodexKey = readAllSources({ claudeRoot, sources: { opencode: { disabled: true }, pi: { disabled: true }, cursor: { disabled: true } } }); // no sources.codex at all
     const withEmptyRoot = readAllSources({
       claudeRoot,
-      sources: { opencode: { disabled: true }, codex: { root: emptyCodexRoot, disabled: false }, pi: { disabled: true } },
+      sources: { opencode: { disabled: true }, codex: { root: emptyCodexRoot, disabled: false }, pi: { disabled: true }, cursor: { disabled: true } },
     });
     assert.equal(noCodexKey.source, "claude-code");
     assert.equal(noCodexKey.sessions.length, 0);
@@ -232,7 +318,7 @@ test("without --no-pi, pi sessions are included in the bundle", () => {
       claudeRoot,
       // opencode and codex explicitly disabled so this doesn't pick up
       // whatever real opencode/codex data happens to exist on the machine.
-      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { root: piRoot, disabled: false } },
+      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { root: piRoot, disabled: false }, cursor: { disabled: true } },
     });
     assert.equal(parsed.sessions.length, 1, `expected 1 session, got ${parsed.sessions.length}`);
     assert.equal(parsed.sessions[0].sessionId, "pi-one");
@@ -249,7 +335,7 @@ test("--no-pi produces a claude-code-only bundle (privacy escape hatch)", () => 
   try {
     const parsed = readAllSources({
       claudeRoot,
-      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { root: piRoot, disabled: true } },
+      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { root: piRoot, disabled: true }, cursor: { disabled: true } },
     });
     // The pi sessions tree on disk has 1 session; with --no-pi it must NOT
     // appear in the bundle.
@@ -277,10 +363,10 @@ test("absent pi source key or an empty pi root leaves the claude-code-only bundl
   process.env.HOME = fakeHome;
   process.env.USERPROFILE = fakeHome;
   try {
-    const noPiKey = readAllSources({ claudeRoot, sources: { opencode: { disabled: true }, codex: { disabled: true } } }); // no sources.pi at all
+    const noPiKey = readAllSources({ claudeRoot, sources: { opencode: { disabled: true }, codex: { disabled: true }, cursor: { disabled: true } } }); // no sources.pi at all
     const withEmptyRoot = readAllSources({
       claudeRoot,
-      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { root: emptyPiRoot, disabled: false } },
+      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { root: emptyPiRoot, disabled: false }, cursor: { disabled: true } },
     });
     assert.equal(noPiKey.source, "claude-code");
     assert.equal(noPiKey.sessions.length, 0);
@@ -288,6 +374,81 @@ test("absent pi source key or an empty pi root leaves the claude-code-only bundl
   } finally {
     rmSync(claudeRoot, { recursive: true, force: true });
     rmSync(emptyPiRoot, { recursive: true, force: true });
+    rmSync(fakeHome, { recursive: true, force: true });
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    if (prevUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = prevUserProfile;
+  }
+});
+
+// ── cursor: same merge/opt-out/absent-root contract as opencode/codex/pi
+// above, but the fixture needs node:sqlite to build a store.db, so this whole
+// block skips cleanly on Node < 22.5 (no JSON fallback exists for cursor —
+// see src/adapters/cursor.mjs's header comment).
+
+test("without --no-cursor, cursor sessions are included in the bundle", { skip: sqlite ? false : "node:sqlite unavailable" }, () => {
+  const cuRoot = makeCursorSessions();
+  const claudeRoot = emptyClaudeRoot();
+  try {
+    const parsed = readAllSources({
+      claudeRoot,
+      // opencode/codex/pi explicitly disabled so this doesn't pick up
+      // whatever real opencode/codex/pi data happens to exist on the machine.
+      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { disabled: true }, cursor: { root: cuRoot, disabled: false } },
+    });
+    assert.equal(parsed.sessions.length, 1, `expected 1 session, got ${parsed.sessions.length}`);
+    assert.equal(parsed.sessions[0].sessionId, "cu-one");
+    assert.equal(parsed.sessions[0].source, "cursor");
+  } finally {
+    rmSync(cuRoot, { recursive: true, force: true });
+    rmSync(claudeRoot, { recursive: true, force: true });
+  }
+});
+
+test("--no-cursor produces a claude-code-only bundle (privacy escape hatch)", { skip: sqlite ? false : "node:sqlite unavailable" }, () => {
+  const cuRoot = makeCursorSessions();
+  const claudeRoot = emptyClaudeRoot();
+  try {
+    const parsed = readAllSources({
+      claudeRoot,
+      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { disabled: true }, cursor: { root: cuRoot, disabled: true } },
+    });
+    // The cursor chats tree on disk has 1 session; with --no-cursor it must
+    // NOT appear in the bundle.
+    assert.equal(parsed.sessions.length, 0, `expected 0 sessions, got ${parsed.sessions.length}: ${JSON.stringify(parsed.sessions.map(s => s.sessionId))}`);
+  } finally {
+    rmSync(cuRoot, { recursive: true, force: true });
+    rmSync(claudeRoot, { recursive: true, force: true });
+  }
+});
+
+test("absent cursor source key or an empty cursor root leaves the claude-code-only bundle unchanged", { skip: sqlite ? false : "node:sqlite unavailable" }, () => {
+  // cursor-agent documents no env-var override for the chats root (unlike
+  // codex's CODEX_HOME) — defaultCursorRoot() is hardcoded to
+  // homedir()/.cursor/chats. To exercise the "absent key" branch (which falls
+  // through to defaultCursorRoot()) without touching THIS machine's real
+  // ~/.cursor/chats, HOME and USERPROFILE are both pinned to an empty fixture
+  // dir for the duration of this test, same as the pi case above.
+  const claudeRoot = emptyClaudeRoot();
+  const emptyCursorRoot = mkdtempSync(join(tmpdir(), "cu-empty-"));
+  const fakeHome = mkdtempSync(join(tmpdir(), "cu-home-"));
+  const prevHome = process.env.HOME;
+  const prevUserProfile = process.env.USERPROFILE;
+  process.env.HOME = fakeHome;
+  process.env.USERPROFILE = fakeHome;
+  try {
+    const noCursorKey = readAllSources({ claudeRoot, sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { disabled: true } } }); // no sources.cursor at all
+    const withEmptyRoot = readAllSources({
+      claudeRoot,
+      sources: { opencode: { disabled: true }, codex: { disabled: true }, pi: { disabled: true }, cursor: { root: emptyCursorRoot, disabled: false } },
+    });
+    assert.equal(noCursorKey.source, "claude-code");
+    assert.equal(noCursorKey.sessions.length, 0);
+    assert.deepEqual(withEmptyRoot, noCursorKey, "an empty/absent cursor source must leave the claude-code-only bundle unchanged");
+  } finally {
+    rmSync(claudeRoot, { recursive: true, force: true });
+    rmSync(emptyCursorRoot, { recursive: true, force: true });
     rmSync(fakeHome, { recursive: true, force: true });
     if (prevHome === undefined) delete process.env.HOME;
     else process.env.HOME = prevHome;
