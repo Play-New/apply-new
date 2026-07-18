@@ -2,7 +2,7 @@
 
 > `apply-new`: apply to Play New by showing how you work.
 
-A CV is a list of what you did, formatted for keyword scans. For work that happens inside agent logs, it's the wrong surface. The signal we care about (how you decompose, how you verify, what you do when the model misunderstands) already exists in your Claude Code sessions. A resume can't see it.
+A CV is a list of what you did, formatted for keyword scans. For work that happens inside agent logs, it's the wrong surface. The signal we care about (how you decompose, how you verify, what you do when the model misunderstands) already exists in your agent sessions, whichever CLI they happen to live in. A resume can't see it.
 
 Apply New makes it visible. You run it on your laptop, you see the profile before anyone else does, and you decide whether to share it. There's no scoring or ranking. The profile describes how you work, and it opens a conversation.
 
@@ -25,7 +25,20 @@ The slash command asks for four contact fields (name, email, city, status), read
 node bin/apply-new.mjs submit --yes
 ```
 
-> Today the tool reads Claude Code, opencode, Codex CLI (`~/.codex/sessions`; skip it with `--no-codex`), pi (`~/.pi/agent/sessions`; skip it with `--no-pi`), cursor-agent (`~/.cursor/chats`; skip it with `--no-cursor`), and kimi-code (`~/.kimi-code/sessions`; skip it with `--no-kimi`) logs. Gemini CLI and ChatGPT / Claude.ai exports are on the roadmap.
+## Sources
+
+The tool reads every supported agent CLI it finds on your machine and folds them into one profile. Each source is disclosed in the profile's `sources` block with its capture level: *full* means tamper-evident records the authenticity screen can verify, *structural* means well-formed data without a verification story.
+
+| | Reads from | Skip with | Capture |
+|---|---|---|---|
+| [![Claude Code](https://img.shields.io/badge/Claude_Code-555?logo=claude&logoColor=white)](https://claude.com/claude-code) | `~/.claude/projects` | always read (`--root` points it elsewhere) | full |
+| [![opencode](https://img.shields.io/badge/opencode-555?logo=opencode&logoColor=white)](https://opencode.ai) | `~/.local/share/opencode` (sqlite; JSON fallback via `--opencode-json`) | `--no-opencode` | structural |
+| [![Codex CLI](https://img.shields.io/badge/Codex_CLI-555)](https://github.com/openai/codex) | `~/.codex/sessions` | `--no-codex` | structural |
+| [![pi](https://img.shields.io/badge/pi-555)](https://pi.dev) | `~/.pi/agent/sessions` | `--no-pi` | structural |
+| [![cursor-agent](https://img.shields.io/badge/cursor--agent-555?logo=cursor&logoColor=white)](https://cursor.com/cli) | `~/.cursor/chats` (sqlite; needs Node 22.5+, otherwise read as empty and disclosed) | `--no-cursor` | structural |
+| ![kimi-code](https://img.shields.io/badge/kimi--code-555?logo=moonshotai&logoColor=white) | `~/.kimi-code/sessions` | `--no-kimi` | structural |
+
+Every source normalizes into the same session model, so all six lenses below read them identically. Each `--<source>-root <dir>` flag overrides the default location. What never gets opened per source (credential files, config, telemetry) is enumerated in [PRIVACY.md](PRIVACY.md). Gemini CLI and ChatGPT / Claude.ai exports are on the roadmap.
 
 ## What we look at
 
@@ -85,7 +98,7 @@ If you spot something we should change, [open an issue](https://github.com/Play-
 | `submit --dry-run` | write the exact outgoing payload to `out/payload-preview.json`, send nothing |
 | `submit --yes` | send to Play New |
 
-All commands run as `node bin/apply-new.mjs <sub>` or as `apply-new <sub>` after `npm link`. Common flags: `--name`, `--email`, `--city`, `--status`, `--top N` (force the project count; default is adaptive 3–5), `--root <dir>`, `--tz <IANA zone>` (bucket the day-based counts — active days, streak — in your timezone instead of the UTC default; the zone you choose is recorded in the profile, which is also why UTC is the default: a zone names a place, and nothing location-shaped should leave your machine unless you opt in). Without Claude Code, set `ANTHROPIC_API_KEY` and the narrative goes through the API instead of your subscription — note that on this path the narrative input (project labels, README/CLAUDE.md excerpts, dependency names, commit subjects, sampled prompts) is sent to api.anthropic.com under your own key, before any name-stripping; the tool warns when this happens, and an explicit `--narrative-file` always takes precedence over the key. The subscription and manual paths stay fully local until submit. Details in [PRIVACY.md](PRIVACY.md).
+All commands run as `node bin/apply-new.mjs <sub>` or as `apply-new <sub>` after `npm link`. Common flags: `--name`, `--email`, `--city`, `--status`, `--top N` (force the project count; default is adaptive 3–5), `--root <dir>`, the per-source roots and opt-outs from the Sources table above, `--tz <IANA zone>` (bucket the day-based counts — active days, streak — in your timezone instead of the UTC default; the zone you choose is recorded in the profile, which is also why UTC is the default: a zone names a place, and nothing location-shaped should leave your machine unless you opt in). Without Claude Code, set `ANTHROPIC_API_KEY` and the narrative goes through the API instead of your subscription — note that on this path the narrative input (project labels, README/CLAUDE.md excerpts, dependency names, commit subjects, sampled prompts) is sent to api.anthropic.com under your own key, before any name-stripping; the tool warns when this happens, and an explicit `--narrative-file` always takes precedence over the key. The subscription and manual paths stay fully local until submit. Details in [PRIVACY.md](PRIVACY.md).
 
 ## Tests
 
