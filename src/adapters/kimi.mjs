@@ -33,6 +33,10 @@
 // stale-todo-list nudge) arrive with role "user" exactly like a human turn
 // and are counted as one — not observed to be a problem in real sessions on
 // this machine, and not asked for; revisit if it distorts turn counts.
+// `turn.prompt` and `context.append_message` both record the user's prompt
+// (the former is the raw input event, the latter the canonical message the
+// context keeps); processing both would double-count user messages, so only
+// append_message emits — turn.prompt is a no-op case in the switch below.
 //
 // USAGE KEYS are renamed, not reused: step.end's usage object uses kimi's
 // own names (inputOther, output, inputCacheRead, inputCacheCreation) which
@@ -284,10 +288,13 @@ function processAgentFile(session, sessionId, agentId, records) {
   for (const r of records) {
     if (!r || typeof r !== "object") continue;
     // Not every record type carries a `time` field (metadata's own
-    // timestamp field is `created_at`, confirmed on real data) — iso()
-    // degrades a missing/non-finite value to null and stampSessionTs is a
-    // no-op on null, so this is safe to call unconditionally.
-    const ts = iso(r.time);
+    // timestamp field is `created_at`, confirmed on real data) — fall back
+    // to created_at so metadata's own record still counts toward the
+    // session span, per the "every record's time counts toward the span"
+    // rule below. iso() degrades a missing/non-finite value to null and
+    // stampSessionTs is a no-op on null, so this is safe to call
+    // unconditionally.
+    const ts = iso(r.time ?? r.created_at);
     stampSessionTs(ts);
 
     switch (r.type) {
@@ -365,6 +372,7 @@ function processAgentFile(session, sessionId, agentId, records) {
             break;
           case "tool.result":
             turn.toolResults.push(buildToolResultEntry(event));
+            markTurnTs(ts);
             break;
           case "step.end":
             accumulateUsage(turn, event.usage);

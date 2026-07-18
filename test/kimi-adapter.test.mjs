@@ -260,6 +260,64 @@ test("turn discipline: an assistant-role context.append_message mid-open-turn fl
   });
 });
 
+// ── 1c. tool.result must stamp the turn ts (toolResults-only turn) ──
+
+test("turn ts: an injected user-role context.append_message splitting a tool.call from its tool.result still emits the toolResults-only turn with a real ts, and forId still links the earlier toolUse", () => {
+  withRoot((root) => {
+    const { dir } = makeSessionDir(root);
+    writeStateJson(dir);
+    writeAgentWire(dir, "main", [
+      appendMessageUser(T(0), "start"),
+      stepBegin(T(1), "0", 1),
+      toolCallRec(T(2), "0", 1, { toolCallId: "call_1", name: "Bash", args: { command: "echo hi" }, display: { kind: "command", command: "echo hi" } }),
+      // kimi's own injected reminders arrive as role "user" exactly like a
+      // human turn (see the adapter header) — this one lands BETWEEN the
+      // tool.call and its tool.result, flushing the turn that holds the
+      // toolUse and opening a fresh turn that receives ONLY the tool.result.
+      appendMessageUser(T(3), "injected nudge"),
+      toolResultRec(T(4), { toolCallId: "call_1", output: "hi" }),
+      stepEnd(T(5), "0", 1, { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 }),
+    ]);
+
+    const parsed = readKimi(join(root, "sessions"));
+    const s = parsed.sessions[0];
+
+    // user(start), assistant(toolUse-only, flushed by the injection),
+    // user(injected nudge), assistant(toolResults-only, flushed at EOF).
+    assert.equal(s.messages.length, 4, `expected 4 messages, got roles ${JSON.stringify(s.messages.map((m) => m.role))}`);
+    const [, toolUseMsg, , toolResultMsg] = s.messages;
+
+    assert.equal(toolUseMsg.toolUses.length, 1);
+    assert.equal(toolUseMsg.toolUses[0].id, "call_1");
+
+    // The toolResults-only turn must actually be emitted: the
+    // toolResults.length trigger in flushTurn's hasContent check is
+    // load-bearing, not dead code.
+    assert.equal(toolResultMsg.role, "assistant");
+    assert.equal(toolResultMsg.toolUses.length, 0, "this turn must have no toolUses of its own, only the carried-over result");
+    assert.equal(toolResultMsg.toolResults.length, 1);
+    assert.equal(toolResultMsg.toolResults[0].forId, "call_1", "the toolResult must still link back to the earlier toolUse id");
+
+    // Its ts must be a real ISO string from the tool.result event, not
+    // null (null sorts before every real ISO string and would be dropped
+    // by any ms(m.ts)-gated lens).
+    assert.equal(typeof toolResultMsg.ts, "string", `expected a real ts string, got ${toolResultMsg.ts}`);
+    assert.ok(Number.isFinite(Date.parse(toolResultMsg.ts)), `ts not a valid ISO string: ${toolResultMsg.ts}`);
+    assert.equal(toolResultMsg.ts, iso_(T(4)), "ts must come from the tool.result event's own time, not step.end's later time");
+
+    // Messages sort in true temporal order.
+    const tsValues = s.messages.map((m) => m.ts);
+    const sorted = [...tsValues].sort();
+    assert.deepEqual(tsValues, sorted, `messages not in temporal order: ${JSON.stringify(tsValues)}`);
+  });
+});
+
+// tiny local helper mirroring the adapter's own epoch-ms -> ISO conversion,
+// just for asserting the toolResult-turn's ts against a known instant.
+function iso_(ms) {
+  return new Date(ms).toISOString();
+}
+
 // ── 2. Usage rename + sum across step.ends; no step.end -> usage null ──
 
 test("usage: inputOther/inputCacheRead/inputCacheCreation rename to input/cacheRead/cacheCreate; two step.ends in one turn sum; a turn with no step.end has usage null", () => {
@@ -491,6 +549,35 @@ test("multi-agent rollup: agents/main + agents/sub1 fold into ONE session, messa
       assert.equal(m._agentId, undefined, "_agentId is transient sort bookkeeping, must not appear on returned messages");
       assert.equal(m._agentSeq, undefined, "_agentSeq is transient sort bookkeeping, must not appear on returned messages");
     }
+  });
+});
+
+// ── 7b. agentsDir iteration is alphabetical, not creation/readdir order ──
+
+test("multi-agent tie-break is alphabetical regardless of on-disk creation order: an agent dir created LAST alphabetically-first ('main' after 'zzz') still sorts first on an identical-ts tie", () => {
+  withRoot((root) => {
+    const { dir } = makeSessionDir(root);
+    writeStateJson(dir, {
+      agents: { main: { type: "main", parentAgentId: null }, zzz: { type: "worker", parentAgentId: "main" } },
+    });
+    // Deliberately write "zzz" to disk BEFORE "main", so raw readdirSync()
+    // enumeration (which can reflect inode/creation order, not name order)
+    // would hand back zzz first if the adapter didn't force alphabetical
+    // order itself. Both messages share an identical ts to force the tie.
+    writeAgentWire(dir, "zzz", [appendMessageUser(T(10), "zzz tie")]);
+    writeAgentWire(dir, "main", [appendMessageUser(T(10), "main tie")]);
+
+    const parsed = readKimi(join(root, "sessions"));
+    assert.equal(parsed.sessions.length, 1);
+    const s = parsed.sessions[0];
+    assert.equal(s.messages.length, 2);
+    assert.equal(s.messages[0].ts, s.messages[1].ts, "test setup requires an identical ts tie");
+
+    assert.ok(
+      s.messages[0].uuid.includes("-main-turn-"),
+      `alphabetical tie-break must place "main" first regardless of "zzz" being created first on disk, got order ${JSON.stringify(s.messages.map((m) => m.uuid))}`,
+    );
+    assert.ok(s.messages[1].uuid.includes("-zzz-turn-"), '"zzz" must sort after "main" despite being written to disk first');
   });
 });
 
