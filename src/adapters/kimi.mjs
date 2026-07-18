@@ -312,11 +312,25 @@ function processAgentFile(session, sessionId, agentId, records) {
         } else if (message.role === "assistant") {
           // Not observed on this machine (every context.append_message
           // seen was role "user"); defensive fallback only, mirroring the
-          // user case above rather than the loop-event accumulator — emits
-          // its own standalone message so a future kimi version that starts
-          // sending fully-formed assistant messages this way isn't silently
-          // dropped. Deliberately does not touch the open loop-event turn.
+          // user case's turn discipline exactly (flush -> emit -> reopen)
+          // rather than leaving the open loop-event turn untouched.
+          // Emitting straight into `emit()` without flushing first left the
+          // in-flight turn open: it kept accumulating loop-event content
+          // from BOTH sides of this injected message into one turn, whose
+          // ts is fixed at its FIRST folded record (i.e. from before the
+          // injection) but which is only pushed to `messages` later, after
+          // the injected message was already pushed. Once merged across
+          // agents and sorted by ts, that produces a parentUuid chain where
+          // the child (the late-flushed turn) has an EARLIER ts than its
+          // parent (this injected message) — plus content from before/after
+          // the injection wrongly folded into a single message. Flushing
+          // first closes out whatever was folded so far as its own message
+          // (preserving the ts-of-first-folded-record rule), then this
+          // injected message gets its own ts/uuid slot, then reopening a
+          // fresh turn lets subsequent loop events accumulate cleanly again.
+          flushTurn();
           emit("assistant", ts, extractMessageText(message.content));
+          openTurn();
         }
         // any other role: ignore, forward-compat
         break;
@@ -444,7 +458,15 @@ export function readKimi(root) {
       const agentsDir = join(sessionDir, "agents");
       let sessionIsLive = false;
 
-      for (const agentId of listDirNames(agentsDir)) {
+      // agents/*: iterate in a fixed alphabetical order, never raw
+      // readdirSync() enumeration order. POSIX readdir does not guarantee
+      // any particular order (it can reflect inode/allocation history, not
+      // creation or name order, and differs by filesystem/OS) — two agents
+      // whose messages land on the exact same ts would previously merge in
+      // whatever order the OS handed back, reproducible on one machine but
+      // not across machines. Sorting here is also what the merge-sort
+      // tie-break below keys its "agentId" half off of.
+      for (const agentId of listDirNames(agentsDir).sort()) {
         const wirePath = join(agentsDir, agentId, "wire.jsonl");
         if (!existsSync(wirePath)) continue;
 
@@ -467,6 +489,15 @@ export function readKimi(root) {
         malformedLinesTotal += malformed;
 
         const { messages, redactionHits: rh, redactedChars: rc } = processAgentFile(session, sessionId, agentId, records);
+        // Tag each message with the agentId it came from and its position
+        // within that agent's own emission order (0, 1, 2, ...), so the
+        // merge sort below has a deterministic tie-break for identical ts
+        // values across agents. Transient bookkeeping only — stripped
+        // again right after sorting, never part of the returned shape.
+        messages.forEach((m, i) => {
+          m._agentId = agentId;
+          m._agentSeq = i;
+        });
         session.messages.push(...messages);
         redactionHits += rh;
         redactedChars += rc;
@@ -478,9 +509,26 @@ export function readKimi(root) {
 
       // Every agent's messages were synthesized independently (their own
       // local uuid/parentUuid chain); merge them into the one session by
-      // record time, per the subagent-rollup design (see header).
-      session.messages.sort((a, b) => (a.ts || "").localeCompare(b.ts || ""));
+      // record time, per the subagent-rollup design (see header). Ties on
+      // identical ts are broken by agentId (alphabetical, matching the
+      // agentsDir iteration order above) then by each message's own
+      // position within its agent's emission order — both fixed,
+      // filesystem-independent keys, so identical-ts messages land in the
+      // same order on every machine instead of depending on push() order,
+      // which used to be at the mercy of POSIX readdir's unspecified
+      // enumeration order (see the agentsDir loop above).
+      session.messages.sort((a, b) => {
+        const byTs = (a.ts || "").localeCompare(b.ts || "");
+        if (byTs !== 0) return byTs;
+        const byAgent = a._agentId.localeCompare(b._agentId);
+        if (byAgent !== 0) return byAgent;
+        return a._agentSeq - b._agentSeq;
+      });
       session.chain = session.messages.map((m) => ({ uuid: m.uuid, parentUuid: m.parentUuid, ts: m.ts }));
+      for (const m of session.messages) {
+        delete m._agentId;
+        delete m._agentSeq;
+      }
 
       sessions.push({ ...session, models: [...session.models] });
     }

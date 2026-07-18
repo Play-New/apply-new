@@ -88,6 +88,11 @@ const appendMessageUser = (t, text) => ({
   time: t,
   message: { role: "user", content: [{ type: "text", text }], toolCalls: [], origin: { kind: "user" } },
 });
+const appendMessageAssistant = (t, text) => ({
+  type: "context.append_message",
+  time: t,
+  message: { role: "assistant", content: [{ type: "text", text }], toolCalls: [], origin: { kind: "injection" } },
+});
 const llmRequest = (t, { modelAlias, provider = "openai", model = "glm-5.2" } = {}) => ({
   type: "llm.request",
   kind: "loop",
@@ -188,6 +193,70 @@ test("turn synthesis: a user message + loop events (think, text, tool.call, tool
     assert.equal(asst.parentUuid, user.uuid);
     assert.equal(s.chain.length, 2);
     assert.deepEqual(s.chain.map((c) => c.uuid), [user.uuid, asst.uuid]);
+  });
+});
+
+// ── 1b. Non-user-role context.append_message mid-open-turn must flush first ──
+
+test("turn discipline: an assistant-role context.append_message mid-open-turn flushes the in-flight loop-event turn before emitting, and reopens a fresh turn after", () => {
+  withRoot((root) => {
+    const { dir, sessionId } = makeSessionDir(root);
+    writeStateJson(dir);
+    writeAgentWire(dir, "main", [
+      appendMessageUser(T(0), "start"),
+      stepBegin(T(1), "0", 1),
+      contentText(T(1), "0", 1, "before"),
+      appendMessageAssistant(T(2), "injected"),
+      contentText(T(3), "0", 1, "after"),
+      stepEnd(T(4), "0", 1, { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 }),
+    ]);
+
+    const parsed = readKimi(join(root, "sessions"));
+    const s = parsed.sessions[0];
+
+    // Exactly 1 user + 3 assistant-shaped messages: the flushed "before"
+    // turn, the injected message, and the flushed "after" turn — none
+    // dropped, none merged together.
+    assert.equal(s.messages.length, 4, `expected user + 3 assistant messages, got roles ${JSON.stringify(s.messages.map((m) => m.role))}`);
+    const [user, beforeMsg, injectedMsg, afterMsg] = s.messages;
+
+    assert.equal(user.role, "user");
+    assert.equal(user.textRedacted.trim(), "start");
+
+    assert.equal(beforeMsg.role, "assistant");
+    assert.ok(beforeMsg.textRedacted.includes("before"), "the pre-injection loop-event turn must be flushed as its own message");
+    assert.ok(!beforeMsg.textRedacted.includes("after"), "before-turn must not absorb after-turn content");
+
+    assert.equal(injectedMsg.role, "assistant");
+    assert.equal(injectedMsg.textRedacted.trim(), "injected");
+
+    assert.equal(afterMsg.role, "assistant");
+    assert.ok(afterMsg.textRedacted.includes("after"), "the post-injection loop-event turn must be flushed as its own message");
+    assert.ok(!afterMsg.textRedacted.includes("before"), "after-turn must not have absorbed before-turn content");
+
+    // Temporally consistent order: before-turn, then injected, then after-turn.
+    assert.deepEqual(
+      s.messages.map((m) => m.role),
+      ["user", "assistant", "assistant", "assistant"],
+    );
+
+    // Every message's ts >= its parent's ts (no temporally-inverted chain).
+    const byUuid = Object.fromEntries(s.messages.map((m) => [m.uuid, m]));
+    for (const m of s.messages) {
+      if (!m.parentUuid) continue;
+      const parent = byUuid[m.parentUuid];
+      assert.ok(parent, `parentUuid ${m.parentUuid} must resolve to a message in this file`);
+      assert.ok(m.ts >= parent.ts, `child ts (${m.ts}, ${m.textRedacted.trim()}) must be >= parent ts (${parent.ts}, ${parent.textRedacted.trim()})`);
+    }
+
+    // Chain order matches message array order (both built from the same sort).
+    assert.deepEqual(s.chain.map((c) => c.uuid), s.messages.map((m) => m.uuid));
+
+    // uuid chain itself, sanity-checked against the sessionId prefix.
+    assert.equal(user.uuid, `${sessionId}-main-turn-1`);
+    assert.equal(beforeMsg.parentUuid, user.uuid);
+    assert.equal(injectedMsg.parentUuid, beforeMsg.uuid);
+    assert.equal(afterMsg.parentUuid, injectedMsg.uuid);
   });
 });
 
@@ -372,34 +441,56 @@ test("multi-agent rollup: agents/main + agents/sub1 fold into ONE session, messa
     writeStateJson(dir, {
       agents: { main: { type: "main", parentAgentId: null }, sub1: { type: "worker", parentAgentId: "main" } },
     });
-    // main: user at T(0), assistant flush at T(4) (interleaved with sub1 below)
+    // main: user at T(0), assistant flush at T(4) (interleaved with sub1 below),
+    // then a trailing user message at T(10) tying with sub1's own T(10) below.
     writeAgentWire(dir, "main", [
       appendMessageUser(T(0), "main task"),
       stepBegin(T(4), "0", 1),
       contentText(T(4), "0", 1, "main working"),
       stepEnd(T(4), "0", 1, { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 }),
+      appendMessageUser(T(10), "main tie"),
     ]);
-    // sub1: user at T(1), assistant flush at T(3) - both fall BETWEEN main's two records
+    // sub1: user at T(1), assistant flush at T(3) - both fall BETWEEN main's two
+    // records, then a trailing user message at T(10), identical ts to main's above.
     writeAgentWire(dir, "sub1", [
       appendMessageUser(T(1), "sub task"),
       stepBegin(T(3), "0", 1),
       contentText(T(3), "0", 1, "sub working"),
       stepEnd(T(3), "0", 1, { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 }),
+      appendMessageUser(T(10), "sub tie"),
     ]);
 
     const parsed = readKimi(join(root, "sessions"));
     assert.equal(parsed.sessions.length, 1, "both agent files must fold into ONE session, not two");
     const s = parsed.sessions[0];
     assert.equal(s.sessionId, sessionId);
-    assert.equal(s.messages.length, 4);
+    assert.equal(s.messages.length, 6);
 
-    // time-ordered across files: main-user(T0), sub1-user(T1), sub1-asst(T3), main-asst(T4)
+    // time-ordered across files: main-user(T0), sub1-user(T1), sub1-asst(T3),
+    // main-asst(T4), then the T(10) tie broken deterministically by agentId
+    // (alphabetical: "main" < "sub1"), never by filesystem/readdir order.
     const order = s.messages.map((m) => `${m.role}:${m.textRedacted.trim()}`);
-    assert.deepEqual(order, ["user:main task", "user:sub task", "assistant:sub working", "assistant:main working"], `messages not time-ordered across agent files: ${JSON.stringify(order)}`);
+    assert.deepEqual(
+      order,
+      ["user:main task", "user:sub task", "assistant:sub working", "assistant:main working", "user:main tie", "user:sub tie"],
+      `messages not deterministically ordered across agent files: ${JSON.stringify(order)}`,
+    );
 
     // uuids carry the agent id, proving both files were actually read
     assert.ok(s.messages.some((m) => m.uuid.includes("-main-turn-")));
     assert.ok(s.messages.some((m) => m.uuid.includes("-sub1-turn-")));
+
+    // The tied pair: identical ts, main's message must sort before sub1's.
+    const [mainTie, subTie] = s.messages.slice(4);
+    assert.equal(mainTie.ts, subTie.ts, "test setup requires an identical ts across agents");
+    assert.ok(mainTie.uuid.includes("-main-turn-"), "main's tied message must come first");
+    assert.ok(subTie.uuid.includes("-sub1-turn-"), "sub1's tied message must come second");
+
+    // Internal tie-break bookkeeping must never leak into the returned shape.
+    for (const m of s.messages) {
+      assert.equal(m._agentId, undefined, "_agentId is transient sort bookkeeping, must not appear on returned messages");
+      assert.equal(m._agentSeq, undefined, "_agentSeq is transient sort bookkeeping, must not appear on returned messages");
+    }
   });
 });
 
