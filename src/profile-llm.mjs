@@ -208,12 +208,18 @@ export function validateNarrative(n, ctx) {
   return n;
 }
 
+// Builds the narrative input only. Never touches the network, so `prepare`
+// can call it whatever the environment holds.
+export function narrativeInputFor(selected, enrichments, { trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity, distribution, allProjects } = {}) {
+  return narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity, distribution, allProjects);
+}
+
 // Returns { narrative, input }. narrative is null if no key and no override.
 // An explicit --narrative-file always wins over the env key: the API path
 // sends the narrative input off-machine, so it must never engage silently
 // or discard a hand-curated narrative just because a key is in the env.
 export async function generateNarrative(selected, enrichments, { overrideFile, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity, distribution, allProjects } = {}) {
-  const input = narrativeInput(selected, enrichments, trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity, distribution, allProjects);
+  const input = narrativeInputFor(selected, enrichments, { trajectory, compactionSummaries, aiRelationship, agenticLiteracy, intensity, distribution, allProjects });
   if (overrideFile) return { narrative: validateNarrative(JSON.parse(readFileSync(overrideFile, "utf8")), overrideFile), input };
   const key = process.env.ANTHROPIC_API_KEY;
   if (key) {

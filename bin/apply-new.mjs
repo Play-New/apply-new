@@ -39,7 +39,7 @@ import { computeFingerprint } from "../src/fingerprint.mjs";
 import { computeForensics } from "../src/forensics.mjs";
 import { buildDigest } from "../src/digest.mjs";
 import { enrichRepo, describeContextGaps } from "../src/enrich.mjs";
-import { generateNarrative } from "../src/profile-llm.mjs";
+import { generateNarrative, narrativeInputFor } from "../src/profile-llm.mjs";
 import { selectRepresentatives, assembleProfile, renderMarkdown, summarizeSources } from "../src/profile.mjs";
 import { buildContact } from "../src/contact.mjs";
 import { submitProfile, buildPayload } from "../src/submit.mjs";
@@ -244,8 +244,7 @@ async function cmdPrepare() {
   const out = outDir();
   console.log(`\napply-new prepare\n`);
   const { parsed, projects, selected, enrichments, trajectory, aiRelationship, agenticLiteracy, intensity, distribution } = await loadProfileInputs(out);
-  const { input } = await generateNarrative(selected, enrichments, {
-    overrideFile: null,
+  const input = narrativeInputFor(selected, enrichments, {
     trajectory,
     aiRelationship,
     agenticLiteracy,
